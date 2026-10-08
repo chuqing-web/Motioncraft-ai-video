@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>..\..\icon\app.ico</ApplicationIcon>
+    <RootNamespace>MotionCraft.Host</RootNamespace>
+    <AssemblyName>MotionCraft</AssemblyName>
+    <Product>AI Motion Studio</Product>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- WinForms only; avoid pulling WPF WebView2 (WindowsBase version conflict warning). -->
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.2903.40" />
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="10.0.12" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="..\..\www\**\*">
+      <Link>www\%(RecursiveDir)%(Filename)%(Extension)</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
+</Project>

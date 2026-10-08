@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>MotionCraft</title>
+  <link rel="stylesheet" href="css/app.css" />
+</head>
+<body>
+  <div id="bootError"></div>
+  <div id="app">
+    <header class="topbar">
+      <div class="brand">MotionCraft</div>
+      <div class="toolbar" id="toolbar">
+        <button type="button" class="tool" data-act="new">新建</button>
+        <button type="button" class="tool" data-act="open">打开</button>
+        <button type="button" class="tool" data-act="save">保存</button>
+        <span class="sep"></span>
+        <button type="button" class="tool" data-act="template-neon">模板·夜景</button>
+        <button type="button" class="tool" data-act="template-day">模板·日景</button>
+        <button type="button" class="tool" data-act="template-empty">空白</button>
+        <span class="sep"></span>
+        <button type="button" class="tool" data-act="import-image">导入图</button>
+        <button type="button" class="tool" data-act="import-video">导入视频</button>
+        <button type="button" class="tool" data-act="show-assets">素材库</button>
+      </div>
+      <div class="top-actions">
+        <label class="duration-field">秒
+          <input id="totalDuration" type="number" min="1" max="600" value="12" step="1" />
+        </label>
+        <button type="button" class="tool" id="btnPreview">预览</button>
+        <button type="button" class="tool primary" id="btnDirector">生成</button>
+        <button type="button" class="tool" id="btnExport">导出</button>
+        <button type="button" class="tool" id="btnSettings">设置</button>
+      </div>
+    </header>
+
+    <div class="main">
+      <aside class="palette">
+        <h3>节点</h3>
+        <div id="nodePalette"></div>
+        <p class="palette-hint">单击添加 · 橙点拖到绿点连线 · Delete 删除</p>
+      </aside>
+
+      <section class="workspace">
+        <div class="canvas-wrap" id="canvasWrap">
+          <div id="nodeCanvas" class="node-canvas"></div>
+          <svg id="edgesSvg" class="edges-layer"></svg>
+          <div id="emptyCanvas" class="empty-canvas hidden">
+            <h2>空项目</h2>
+            <p>点「生成」或顶部模板开始</p>
+            <div class="empty-actions">
+              <button type="button" class="btn primary" id="btnEmptyDirector">生成</button>
+              <button type="button" class="btn" id="btnEmptyTemplate">夜景模板</button>
+            </div>
+          </div>
+          <div id="previewStage" class="preview-stage hidden">
+            <div id="stageRoot" class="stage-root"></div>
+            <div class="preview-chrome">
+              <button type="button" id="btnStopPreview">关闭</button>
+              <button type="button" id="btnPausePreview">暂停</button>
+              <span id="previewClock">00:00</span>
+              <span id="exportProgress" class="muted"></span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <aside class="props">
+        <h3>属性</h3>
+        <div id="propsPanel"><p class="muted">选中节点</p></div>
+      </aside>
+    </div>
+
+    <footer class="timeline-panel">
+      <div class="timeline-header">
+        <strong>时间轴</strong>
+        <span>点击跳转</span>
+        <span id="timelineMeta"></span>
+      </div>
+      <div id="timeline" class="timeline"></div>
+    </footer>
+  </div>
+
+  <dialog id="directorDialog">
+    <form method="dialog" class="dialog-body" id="directorForm">
+      <h2>生成分镜代码</h2>
+      <p class="muted">先出分镜大纲，再逐镜流式生成 HTML/CSS/JS（需配置 API Key，无离线兜底）。</p>
+      <label>厂商
+        <select id="directorProvider"></select>
+      </label>
+      <label>提示词
+        <textarea id="directorPrompt" rows="5" placeholder="夜晚城市，剪影走过街头，字幕 MotionCraft"></textarea>
+      </label>
+      <label class="row"><input type="checkbox" id="directorReplace" checked /> 替换当前图</label>
+      <div class="dialog-actions">
+        <button type="submit" value="cancel" class="btn ghost">取消</button>
+        <button type="submit" value="run" class="btn primary" id="btnRunDirector">执行</button>
+      </div>
+      <pre id="directorLog" class="log"></pre>
+    </form>
+  </dialog>
+
+  <dialog id="settingsDialog" class="settings-dialog">
+    <form method="dialog" class="dialog-body settings-body" id="settingsForm">
+      <header class="settings-head">
+        <div>
+          <h2>API 设置</h2>
+          <p class="muted">Key 经 DPAPI 加密存本机。留空保存=保持原 Key。</p>
+        </div>
+        <span id="settingsLockBadge" class="lock-badge">DPAPI</span>
+      </header>
+      <div class="settings-layout">
+        <aside id="settingsProviderList" class="settings-list"></aside>
+        <div id="settingsFields" class="settings-editor"></div>
+      </div>
+      <div class="dialog-actions">
+        <button type="button" class="btn ghost" id="btnOpenHostSettings">系统设置窗</button>
+        <button type="submit" value="cancel" class="btn ghost">关闭</button>
+        <button type="submit" value="save" class="btn primary">保存</button>
+      </div>
+      <p id="settingsStatus" class="settings-status muted"></p>
+    </form>
+  </dialog>
+
+  <dialog id="assetsDialog">
+    <form method="dialog" class="dialog-body">
+      <h2>素材库</h2>
+      <div id="assetsList" class="assets-list"></div>
+      <div class="dialog-actions">
+        <button type="submit" value="ok" class="btn primary">关闭</button>
+      </div>
+    </form>
+  </dialog>
+
+  <div id="aiStreamPanel" class="ai-stream-panel hidden" aria-live="polite">
+    <div class="ai-stream-head">
+      <strong id="aiStreamTitle">AI 输出</strong>
+      <span id="aiStreamStatus" class="muted"></span>
+      <button type="button" class="ai-stream-close" id="btnCloseAiStream" title="关闭">×</button>
+    </div>
+    <pre id="aiStreamBody" class="ai-stream-body"></pre>
+  </div>
+
+  <div id="toastHost" class="toast-host"></div>
+  <script type="module" src="js/app.js"></script>
+  <script>
+    window.addEventListener('error', (e) => {
+      const box = document.getElementById('bootError');
+      if (!box) return;
+      box.style.display = 'block';
+      box.textContent = '脚本错误: ' + (e.message || e.error);
+    });
+    window.addEventListener('unhandledrejection', (e) => {
+      const box = document.getElementById('bootError');
+      if (!box) return;
+      box.style.display = 'block';
+      box.textContent = '模块加载失败: ' + (e.reason?.message || e.reason || e);
+    });
+  </script>
+</body>
+</html>

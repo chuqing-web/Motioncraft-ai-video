@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://motioncraft.local/schemas/shot.schema.json",
+  "title": "MotionCraftShot",
+  "description": "Per-shot quality brief + code fields for Composer. Model fills style/camera/etc. then emits runnable html/css/js.",
+  "type": "object",
+  "required": ["title", "duration", "html", "css", "js"],
+  "properties": {
+    "shot_id": { "type": "string", "description": "Optional id e.g. S01" },
+    "title": { "type": "string" },
+    "duration": { "type": "number", "minimum": 0.5 },
+    "text": { "type": "string", "description": "Caption / subtitle" },
+    "style": {
+      "type": "string",
+      "description": "e.g. 电影级写实，自然光，35mm，浅景深，轻微手持"
+    },
+    "scene": { "type": "string", "description": "Location / atmosphere one-liner" },
+    "character": {
+      "type": "string",
+      "description": "Appearance + performance; empty if no character"
+    },
+    "environment": {
+      "type": "string",
+      "description": "Rain, fog, steam, reflections, wind debris..."
+    },
+    "camera": {
+      "type": "string",
+      "description": "Focal feel, aperture feel, move, focus target"
+    },
+    "lighting": {
+      "type": "string",
+      "description": "Color temp, rim, soft shadows, contact shadows"
+    },
+    "effects": {
+      "type": "string",
+      "description": "Particles/FX + physics notes"
+    },
+    "physics": {
+      "type": "string",
+      "description": "Optional: gravity, cloth, hair, collisions"
+    },
+    "post": {
+      "type": "string",
+      "description": "bloom, DOF feel, grain, vignette, grade"
+    },
+    "audio": {
+      "type": "string",
+      "description": "Optional narrative audio notes (not baked into canvas)"
+    },
+    "html": { "type": "string" },
+    "css": { "type": "string" },
+    "js": {
+      "type": "string",
+      "description": "IIFE returning { setup, draw }. Host drives t; no self rAF. No Math.random()."
+    }
+  },
+  "additionalProperties": true
+}
