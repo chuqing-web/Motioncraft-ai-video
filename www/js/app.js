@@ -1,6 +1,7 @@
 import {
   NODE_DEFS,
   createEmptyProject,
+  normalizeProject,
   createNode,
   touch,
   uid,
@@ -20,12 +21,12 @@ import {
 import { toast, confirmAsync, formatTime } from './ui.js';
 import { TEMPLATES } from './templates.js';
 import { pickLocalFile } from './overlays.js';
-import { makeDirectorStreamHandlers, getAiStreamSnapshot } from './stream-ui.js';
+import { makeDirectorStreamHandlers, getAiStreamSnapshot, statusAiStream } from './stream-ui.js';
 
 const TAG = Object.fromEntries(NODE_DEFS.map((d) => [d.type, d.icon]));
 
 const state = {
-  project: createEmptyProject('MotionCraft Demo'),
+  project: createEmptyProject('未命名项目'),
   settings: {
     activeProvider: 'openai',
     bridgePort: Number(new URLSearchParams(location.search).get('bridge')) || 17865,
@@ -36,6 +37,8 @@ const state = {
   previewTime: 0,
   paused: false,
   seeded: false,
+  sessionOpen: false,
+  sessionPath: null,
 };
 
 const els = {
@@ -57,7 +60,66 @@ const els = {
   emptyCanvas: document.getElementById('emptyCanvas'),
   exportProgress: document.getElementById('exportProgress'),
   assetsDialog: document.getElementById('assetsDialog'),
+  projectGate: document.getElementById('projectGate'),
+  appRoot: document.getElementById('app'),
+  projectGateHint: document.getElementById('projectGateHint'),
 };
+
+function decodeHostB64(b64) {
+  return new TextDecoder().decode(Uint8Array.from(atob(b64), (c) => c.charCodeAt(0)));
+}
+
+function hasHost() {
+  return !!window.chrome?.webview;
+}
+
+function updateSessionGate() {
+  const open = !!state.sessionOpen;
+  syncSessionFlags();
+  els.projectGate?.classList.toggle('hidden', open);
+  els.appRoot?.classList.toggle('app-locked', !open);
+  if (!open && els.projectGateHint) {
+    els.projectGateHint.textContent = hasHost()
+      ? '请先新建或打开一个 .vd 工程文件。'
+      : '工程文件需在 MotionCraft 桌面应用中新建/打开（浏览器模式无法读写 .vd）。';
+  }
+  const file = state.sessionPath ? state.sessionPath.split(/[/\\]/).pop() : '';
+  document.title = open
+    ? `${state.project.name || 'MotionCraft'}${file ? ' — ' + file : ''}`
+    : 'MotionCraft — 未打开工程';
+}
+
+function requireSession() {
+  if (state.sessionOpen) return true;
+  updateSessionGate();
+  toast('请先新建或打开工程', { type: 'info' });
+  return false;
+}
+
+function requestHostNewProject() {
+  if (!hasHost()) {
+    toast('请使用 MotionCraft 桌面应用新建 .vd 工程', { type: 'err' });
+    return;
+  }
+  postHost({ type: 'newProject' });
+}
+
+function requestHostOpenProject() {
+  if (!hasHost()) {
+    toast('请使用 MotionCraft 桌面应用打开 .vd 工程', { type: 'err' });
+    return;
+  }
+  postHost({ type: 'openProject' });
+}
+
+function requestHostSaveProject() {
+  if (!requireSession()) return;
+  if (!hasHost()) {
+    toast('请使用桌面应用保存 .vd 工程', { type: 'err' });
+    return;
+  }
+  postHost({ type: 'saveProject' });
+}
 
 const recordCanvas = document.createElement('canvas');
 recordCanvas.width = 1280;
@@ -100,11 +162,48 @@ function refresh() {
     onGenerateEffect: (id, prompt) => generateEffectForNode(id, prompt),
   });
   els.totalDuration.value = state.project.settings.duration || 12;
-  document.title = `${state.project.name || 'MotionCraft'}`;
   if (els.emptyCanvas) {
-    els.emptyCanvas.classList.toggle('hidden', state.project.nodes.length > 0);
+    els.emptyCanvas.classList.toggle('hidden', !state.sessionOpen || state.project.nodes.length > 0);
   }
-  syncHost();
+  updateSessionGate();
+  if (state.sessionOpen) syncHost();
+}
+
+/** Live canvas + host sync while AI/MCP mutates the project graph. */
+function livePaintProject(project, info = {}) {
+  if (project) state.project = project;
+  const now = Date.now();
+  // Coalesce bursty updates; always flush outline / shot / done immediately
+  const urgent =
+    info.phase === 'outline' ||
+    info.phase === 'shot' ||
+    info.phase === 'shot-start' ||
+    info.phase === 'done' ||
+    info.phase === 'start' ||
+    info.phase === 'error';
+  if (!urgent && livePaintProject._last && now - livePaintProject._last < 120) {
+    clearTimeout(livePaintProject._timer);
+    livePaintProject._timer = setTimeout(() => {
+      livePaintProject._last = Date.now();
+      refresh();
+    }, 120);
+    return;
+  }
+  clearTimeout(livePaintProject._timer);
+  livePaintProject._last = now;
+  refresh();
+  // Canvas progress → stream status line only (do not clobber the stream body)
+  if (info.phase && window.__mcAiStream?.active) {
+    const hint =
+      info.phase === 'outline'
+        ? `画布已更新：大纲 ${info.sceneCount || 0} 镜壳`
+        : info.phase === 'shot'
+          ? `画布已更新：第 ${info.index}/${info.total} 镜就绪`
+          : info.phase === 'shot-start'
+            ? `画布：正在生成第 ${info.index}/${info.total} 镜…`
+            : '';
+    if (hint) statusAiStream(hint);
+  }
 }
 
 function deleteNode(id) {
@@ -168,6 +267,7 @@ function buildPalette() {
 }
 
 function addNode(type, x = 120 + Math.random() * 160, y = 100 + Math.random() * 100) {
+  if (!requireSession()) return null;
   const n = createNode(type, x, y);
   state.project.nodes.push(n);
   state.selectedId = n.id;
@@ -177,6 +277,7 @@ function addNode(type, x = 120 + Math.random() * 160, y = 100 + Math.random() * 
 }
 
 async function applyTemplate(id) {
+  if (!requireSession()) return;
   const tpl = TEMPLATES.find((t) => t.id === id);
   if (!tpl) {
     toast('模板不存在', { type: 'err' });
@@ -197,42 +298,51 @@ document.addEventListener('click', async (e) => {
   e.preventDefault();
   const act = btn.dataset.act;
   try {
-    if (act === 'new') await newProject();
-    else if (act === 'open') {
-      if (window.chrome?.webview) postHost({ type: 'openProject' });
-      else toast('请用宿主菜单打开项目', { type: 'info' });
+    if (act === 'gate-new' || act === 'new') {
+      if (state.sessionOpen && state.project.nodes.length) {
+        if (!(await confirmAsync('新建工程将替换当前画布，继续？'))) return;
+      }
+      requestHostNewProject();
+    } else if (act === 'gate-open' || act === 'open') {
+      if (state.sessionOpen && state.project.nodes.length) {
+        if (!(await confirmAsync('打开工程将替换当前画布，继续？'))) return;
+      }
+      requestHostOpenProject();
     } else if (act === 'save') {
-      if (window.chrome?.webview) postHost({ type: 'saveProject' });
-      else downloadProjectJson();
-    } else if (act === 'rename') await renameProject();
-    else if (act === 'import-image') await importAsset('image');
-    else if (act === 'import-video') await importAsset('video');
-    else if (act === 'import-audio') await importAsset('audio');
-    else if (act === 'show-assets') showAssets();
-    else if (act === 'template-neon') await applyTemplate('neon');
-    else if (act === 'template-day') await applyTemplate('day');
-    else if (act === 'template-empty') await applyTemplate('empty');
-    else if (act === 'template-data') await applyTemplate('data');
+      requestHostSaveProject();
+    } else if (act === 'rename') {
+      if (!requireSession()) return;
+      await renameProject();
+    } else if (act === 'import-image') {
+      if (!requireSession()) return;
+      await importAsset('image');
+    } else if (act === 'import-video') {
+      if (!requireSession()) return;
+      await importAsset('video');
+    } else if (act === 'import-audio') {
+      if (!requireSession()) return;
+      await importAsset('audio');
+    } else if (act === 'show-assets') {
+      if (!requireSession()) return;
+      showAssets();
+    } else if (act === 'template-neon') {
+      if (!requireSession()) return;
+      await applyTemplate('neon');
+    } else if (act === 'template-day') {
+      if (!requireSession()) return;
+      await applyTemplate('day');
+    } else if (act === 'template-empty') {
+      if (!requireSession()) return;
+      await applyTemplate('empty');
+    } else if (act === 'template-data') {
+      if (!requireSession()) return;
+      await applyTemplate('data');
+    }
   } catch (err) {
     console.error(err);
     toast('操作失败: ' + err.message, { type: 'err' });
   }
 });
-
-async function newProject() {
-  if (state.project.nodes.length && !(await confirmAsync('新建将清空当前画布，继续？'))) return;
-  state.project = createEmptyProject('未命名项目');
-  state.selectedId = null;
-  state.previewTime = 0;
-  refresh();
-  toast('已新建空白项目');
-}
-
-function downloadProjectJson() {
-  const blob = new Blob([JSON.stringify(state.project, null, 2)], { type: 'application/json' });
-  downloadBlob(blob, `${state.project.name || 'project'}.motioncraft.json`);
-  toast('已下载项目 JSON');
-}
 
 async function renameProject() {
   const name = prompt('项目名称', state.project.name || '');
@@ -299,24 +409,37 @@ function bind(id, fn) {
     try { fn(e); } catch (err) { toast(String(err.message || err), { type: 'err' }); }
   });
 }
-bind('btnPreview', () => startPreview(false));
-bind('btnExport', () => startPreview(true));
+bind('btnPreview', () => { if (requireSession()) startPreview(false); });
+bind('btnExport', () => { if (requireSession()) startPreview(true); });
 bind('btnStopPreview', () => stopPreview());
 bind('btnPausePreview', () => {
   state.paused = !state.paused;
   document.getElementById('btnPausePreview').textContent = state.paused ? '继续' : '暂停';
 });
-bind('btnDirector', () => openDirector());
-bind('btnEmptyDirector', () => openDirector());
+bind('btnDirector', () => { if (requireSession()) openDirector(); });
+bind('btnEmptyDirector', () => { if (requireSession()) openDirector(); });
 bind('btnEmptyTemplate', () => applyTemplate('neon'));
 bind('btnSettings', () => openSettings());
 
 function openDirector(prompt, provider) {
+  if (!requireSession()) return;
   fillProviderSelect();
   if (prompt) els.directorPrompt.value = prompt;
   if (provider) els.directorProvider.value = provider;
   els.directorLog.textContent = '';
   els.directorDialog.showModal();
+}
+
+function singleNodeProvider() {
+  // Always 'auto' so providers.js can fall back to any vendor that has a key
+  return 'auto';
+}
+
+function formatGenError(err) {
+  if (err?.code === 'NO_KEY' || /NO_KEY|未配置 API Key/i.test(err?.message || '')) {
+    return '未配置 API Key：请打开「设置」填写密钥（与 AI 导演共用）';
+  }
+  return err?.message || String(err);
 }
 
 async function generateCharacterForNode(characterId, prompt) {
@@ -333,8 +456,9 @@ async function generateCharacterForNode(characterId, prompt) {
       characterId,
       prompt,
       settings: state.settings,
-      provider: state.settings.activeProvider || 'auto',
+      provider: singleNodeProvider(),
       onStream: stream.onStream,
+      onProject: livePaintProject,
     });
     state.selectedId = characterId;
     refresh();
@@ -346,8 +470,8 @@ async function generateCharacterForNode(characterId, prompt) {
     stream.end(true, done);
     toast(done, { type: meta.fallback ? 'info' : 'ok', ms: 3500 });
   } catch (err) {
-    stream.end(false, err.message);
-    toast('人物生成失败: ' + err.message, { type: 'err' });
+    stream.end(false, formatGenError(err));
+    toast('人物生成失败: ' + formatGenError(err), { type: 'err' });
   }
 }
 
@@ -364,8 +488,9 @@ async function generateChartForNode(chartId, prompt) {
       chartId,
       prompt,
       settings: state.settings,
-      provider: state.settings.activeProvider || 'auto',
+      provider: singleNodeProvider(),
       onStream: stream.onStream,
+      onProject: livePaintProject,
     });
     state.selectedId = chartId;
     refresh();
@@ -377,8 +502,8 @@ async function generateChartForNode(chartId, prompt) {
     stream.end(true, done);
     toast(done, { type: meta.fallback ? 'info' : 'ok', ms: 3500 });
   } catch (err) {
-    stream.end(false, err.message);
-    toast('图表生成失败: ' + err.message, { type: 'err' });
+    stream.end(false, formatGenError(err));
+    toast('图表生成失败: ' + formatGenError(err), { type: 'err' });
   }
 }
 
@@ -395,8 +520,9 @@ async function generateEffectForNode(effectId, prompt) {
       effectId,
       prompt,
       settings: state.settings,
-      provider: state.settings.activeProvider || 'auto',
+      provider: singleNodeProvider(),
       onStream: stream.onStream,
+      onProject: livePaintProject,
     });
     state.selectedId = effectId;
     refresh();
@@ -408,8 +534,8 @@ async function generateEffectForNode(effectId, prompt) {
     stream.end(true, done);
     toast(done, { type: meta.fallback ? 'info' : 'ok', ms: 3500 });
   } catch (err) {
-    stream.end(false, err.message);
-    toast('特效生成失败: ' + err.message, { type: 'err' });
+    stream.end(false, formatGenError(err));
+    toast('特效生成失败: ' + formatGenError(err), { type: 'err' });
   }
 }
 
@@ -427,8 +553,9 @@ async function generateSceneForNode(sceneId, prompt) {
       sceneId,
       prompt,
       settings: state.settings,
-      provider: state.settings.activeProvider || 'auto',
+      provider: singleNodeProvider(),
       onStream: stream.onStream,
+      onProject: livePaintProject,
     });
     state.selectedId = sceneId;
     refresh();
@@ -436,7 +563,9 @@ async function generateSceneForNode(sceneId, prompt) {
       ? `第 ${meta.continuity.index}/${meta.continuity.total} 镜`
       : '此镜';
     const continuityNote =
-      meta.continuity?.hasPrev || meta.continuity?.hasNext ? ' · 已注入连贯上下文' : '';
+      meta.continuity?.hasPrev || meta.continuity?.hasNext || meta.continuity?.hasAttached
+        ? ' · 已注入连贯上下文'
+        : '';
     const attachNote = meta.attachCount ? ` · 附加 ${meta.attachCount} 节点` : '';
     const msg = meta.fallback
       ? `${pos} 完成（${meta.fallback}）`
@@ -446,8 +575,8 @@ async function generateSceneForNode(sceneId, prompt) {
     stream.end(true, msg);
     toast(msg, { type: meta.fallback ? 'info' : 'ok', ms: 4000 });
   } catch (err) {
-    stream.end(false, err.message);
-    toast('分镜生成失败: ' + err.message, { type: 'err' });
+    stream.end(false, formatGenError(err));
+    toast('分镜生成失败: ' + formatGenError(err), { type: 'err' });
   }
 }
 
@@ -479,6 +608,7 @@ document.getElementById('directorForm').addEventListener('submit', async (e) => 
       replace,
       currentProject: state.project,
       onStream: stream.onStream,
+      onProject: livePaintProject,
     });
     state.project = project;
     state.selectedId = null;
@@ -676,6 +806,7 @@ function seekPreview(t) {
 }
 
 async function startPreview(doExport) {
+  if (!requireSession()) return;
   if (!state.project.nodes.some((n) => n.type === 'scene')) {
     toast('请先添加分镜或运行 AI 导演', { type: 'err' });
     return;
@@ -739,14 +870,46 @@ async function startPreview(doExport) {
   if (session) {
     try {
       const { blob, ext, mime } = await session.stop();
-      downloadBlob(blob, `${state.project.name || 'motioncraft'}.${ext}`);
-      els.exportProgress.textContent = '';
-      toast(`导出完成（${mime}）`, { type: 'ok', ms: 4000 });
+      const base = exportBaseName();
+      const filename = `${base}.${ext}`;
+      if (hasHost()) {
+        // Host DownloadStarting writes next to the open .vd (same basename).
+        els.exportProgress.textContent = state.sessionPath
+          ? '正在保存到工程同目录…'
+          : '选择保存位置…';
+        downloadBlob(blob, filename);
+        // Fallback toast if host ack is slow / missing
+        window.setTimeout(() => {
+          if (els.exportProgress.textContent.includes('保存') || els.exportProgress.textContent.includes('选择')) {
+            els.exportProgress.textContent = '';
+            toast(
+              state.sessionPath
+                ? `导出已触发（${mime}）→ 与 .vd 同目录的 ${filename}`
+                : `导出已触发（${mime}）`,
+              { type: 'ok', ms: 4500 },
+            );
+          }
+        }, 2500);
+      } else {
+        downloadBlob(blob, filename);
+        els.exportProgress.textContent = '';
+        toast(`导出完成（${mime}）`, { type: 'ok', ms: 4000 });
+      }
     } catch (err) {
       toast('导出失败: ' + err.message, { type: 'err' });
     }
   }
   refresh();
+}
+
+/** Basename for export file — matches open .vd when available. */
+function exportBaseName() {
+  if (state.sessionPath) {
+    const leaf = state.sessionPath.split(/[/\\]/).pop() || '';
+    const bare = leaf.replace(/\.vd$/i, '');
+    if (bare) return bare;
+  }
+  return state.project.name || 'motioncraft';
 }
 
 /* ——— Keyboard ——— */
@@ -777,38 +940,98 @@ window.addEventListener('keydown', async (e) => {
   }
   if (e.ctrlKey && e.key.toLowerCase() === 's') {
     e.preventDefault();
-    postHost({ type: 'saveProject' });
-    if (!window.chrome?.webview) downloadProjectJson();
+    requestHostSaveProject();
   }
   if (e.ctrlKey && e.key.toLowerCase() === 'o') {
     e.preventDefault();
-    postHost({ type: 'openProject' });
+    requestHostOpenProject();
   }
   if (e.ctrlKey && e.key.toLowerCase() === 'n') {
     e.preventDefault();
-    await newProject();
+    requestHostNewProject();
   }
 });
+
+function syncSessionFlags() {
+  window.__mcSessionOpen = !!state.sessionOpen;
+  window.__mcSessionPath = state.sessionPath || null;
+}
+
+function applyHostMessage(msg) {
+  if (!msg || typeof msg !== 'object') return false;
+  try {
+    if (msg.type === 'openProjectSession') {
+      const project = normalizeProject(msg.project, '未命名项目');
+      const path = typeof msg.path === 'string' ? msg.path : null;
+      window.MotionCraftAPI.setProject(project, { path, silent: true });
+      toast(path ? `已打开 ${path.split(/[/\\]/).pop()}` : '已打开工程', { type: 'ok' });
+      return true;
+    }
+    if (msg.type === 'sessionPath') {
+      state.sessionPath = typeof msg.path === 'string' ? msg.path : null;
+      state.sessionOpen = true;
+      syncSessionFlags();
+      updateSessionGate();
+      toast('已保存', { type: 'ok', ms: 1400 });
+      return true;
+    }
+    if (msg.type === 'projectAutosaved') {
+      // Title bar already shows host status; keep toast rare
+      return true;
+    }
+    if (msg.type === 'exportSaved') {
+      const path = typeof msg.path === 'string' ? msg.path : '';
+      els.exportProgress.textContent = '';
+      toast(path ? `已导出到工程同目录：\n${path}` : '导出完成', { type: 'ok', ms: 5500 });
+      return true;
+    }
+  } catch (err) {
+    console.error('applyHostMessage failed', err);
+    toast('打开工程失败: ' + (err?.message || err), { type: 'err' });
+    return false;
+  }
+  return false;
+}
 
 /* ——— Host API ——— */
 window.MotionCraftAPI = {
   getProject: () => state.project,
   getAiStream: () => getAiStreamSnapshot(),
-  setProject(p) {
-    state.project = p;
+  applyHostMessage,
+  flushPendingHostMsg() {
+    if (window.__mcPendingHostMsg && applyHostMessage(window.__mcPendingHostMsg)) {
+      window.__mcPendingHostMsg = null;
+      return true;
+    }
+    return false;
+  },
+  setProject(p, opts = {}) {
+    state.project = normalizeProject(p);
     state.selectedId = null;
     state.previewTime = 0;
+    state.sessionOpen = true;
+    if (opts.path != null) state.sessionPath = opts.path;
+    syncSessionFlags();
     refresh();
-    toast('已加载项目');
+    if (!opts.silent) toast('已加载工程', { type: 'ok' });
   },
   setProjectFromBase64(b64) {
-    const json = new TextDecoder().decode(Uint8Array.from(atob(b64), (c) => c.charCodeAt(0)));
-    this.setProject(JSON.parse(json));
+    this.setProject(JSON.parse(decodeHostB64(b64)));
+  },
+  openProjectSession(projectB64, pathB64) {
+    const path = pathB64 ? decodeHostB64(pathB64) : null;
+    this.setProject(JSON.parse(decodeHostB64(projectB64)), { path, silent: true });
+    toast(path ? `已打开 ${path.split(/[/\\]/).pop()}` : '已打开工程', { type: 'ok' });
+  },
+  setSessionPath(pathB64) {
+    state.sessionPath = pathB64 ? decodeHostB64(pathB64) : null;
+    state.sessionOpen = true;
+    syncSessionFlags();
+    updateSessionGate();
+    toast('已保存', { type: 'ok', ms: 1400 });
   },
   newProject() {
-    state.project = createEmptyProject();
-    state.selectedId = null;
-    refresh();
+    requestHostNewProject();
   },
   onHostReady(host) {
     if (!host?.settings) return;
@@ -839,6 +1062,11 @@ window.MotionCraftAPI = {
     return this.runCommand(JSON.parse(json));
   },
   async runCommand(cmd) {
+    // MCP / host commands imply an active session (unlock UI if still gated).
+    if (!state.sessionOpen && cmd?.action && !['get_project', 'list_nodes', 'ai_progress'].includes(cmd.action)) {
+      state.sessionOpen = true;
+      updateSessionGate();
+    }
     switch (cmd.action) {
       case 'list_nodes':
         return { ok: true, nodes: state.project.nodes };
@@ -873,6 +1101,7 @@ window.MotionCraftAPI = {
             replace: cmd.replace !== false,
             currentProject: state.project,
             onStream: stream.onStream,
+            onProject: livePaintProject,
           });
           state.project = project;
           refresh();
@@ -894,6 +1123,7 @@ window.MotionCraftAPI = {
             settings: state.settings,
             provider: cmd.provider || 'auto',
             onStream: stream.onStream,
+            onProject: livePaintProject,
           });
           refresh();
           stream.end(true, '分镜完成');
@@ -914,6 +1144,7 @@ window.MotionCraftAPI = {
             settings: state.settings,
             provider: cmd.provider || 'auto',
             onStream: stream.onStream,
+            onProject: livePaintProject,
           });
           refresh();
           stream.end(true, '人物完成');
@@ -934,6 +1165,7 @@ window.MotionCraftAPI = {
             settings: state.settings,
             provider: cmd.provider || 'auto',
             onStream: stream.onStream,
+            onProject: livePaintProject,
           });
           refresh();
           stream.end(true, '图表完成');
@@ -954,6 +1186,7 @@ window.MotionCraftAPI = {
             settings: state.settings,
             provider: cmd.provider || 'auto',
             onStream: stream.onStream,
+            onProject: livePaintProject,
           });
           refresh();
           stream.end(true, '特效完成');
@@ -996,13 +1229,12 @@ try {
     document.getElementById('aiStreamPanel')?.classList.add('hidden');
   });
 
-  // First run: neon template
-  if (!localStorage.getItem('mc_skip_seed') && !state.project.nodes.length) {
-    state.project = TEMPLATES.find((t) => t.id === 'neon').build();
-    localStorage.setItem('mc_skip_seed', '1');
-  }
+  // Drain host open-project message captured before this module finished loading
+  window.MotionCraftAPI.flushPendingHostMsg();
+
+  updateSessionGate();
   refresh();
-  toast('就绪', { ms: 1600 });
+  if (state.sessionOpen) toast('就绪', { ms: 1600 });
 } catch (err) {
   const box = document.getElementById('bootError');
   if (box) {

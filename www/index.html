@@ -8,7 +8,19 @@
 </head>
 <body>
   <div id="bootError"></div>
-  <div id="app">
+  <div id="projectGate" class="project-gate" aria-modal="true" role="dialog" aria-labelledby="projectGateTitle">
+    <div class="project-gate-card">
+      <div class="project-gate-brand">MotionCraft</div>
+      <h1 id="projectGateTitle">打开或新建工程</h1>
+      <p class="project-gate-desc">工程以加密的 <code>.vd</code> 单文件保存。默认目录为程序旁的 <code>project</code> 文件夹。</p>
+      <div class="project-gate-actions">
+        <button type="button" class="btn primary" data-act="gate-new">新建工程</button>
+        <button type="button" class="btn" data-act="gate-open">打开工程</button>
+      </div>
+      <p id="projectGateHint" class="project-gate-hint muted"></p>
+    </div>
+  </div>
+  <div id="app" class="app-locked">
     <header class="topbar">
       <div class="brand">MotionCraft</div>
       <div class="toolbar" id="toolbar">
@@ -143,6 +155,26 @@
   </div>
 
   <div id="toastHost" class="toast-host"></div>
+  <!-- Capture host WebMessages before ES module boots (open .vd race) -->
+  <script>
+    window.__mcPendingHostMsg = null;
+    window.__mcSessionOpen = false;
+    window.__mcSessionPath = null;
+    if (window.chrome && window.chrome.webview) {
+      window.chrome.webview.addEventListener('message', function (ev) {
+        var msg = ev.data;
+        if (typeof msg === 'string') {
+          try { msg = JSON.parse(msg); } catch (e) { return; }
+        }
+        window.__mcPendingHostMsg = msg;
+        if (window.MotionCraftAPI && window.MotionCraftAPI.applyHostMessage) {
+          try {
+            if (window.MotionCraftAPI.applyHostMessage(msg)) window.__mcPendingHostMsg = null;
+          } catch (e) { console.error(e); }
+        }
+      });
+    }
+  </script>
   <script type="module" src="js/app.js"></script>
   <script>
     window.addEventListener('error', (e) => {

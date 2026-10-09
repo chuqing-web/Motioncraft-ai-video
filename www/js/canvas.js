@@ -14,6 +14,9 @@ const TYPE_TAG = {
   ai: 'AI',
 };
 
+/** Must match `.graph-node { width }` / `--node-w` in app.css */
+const NODE_W = 156;
+
 export class GraphCanvas {
   constructor({ canvasEl, svgEl, getProject, onChange, onSelect, onSelectEdge }) {
     this.canvasEl = canvasEl;
@@ -32,10 +35,10 @@ export class GraphCanvas {
 
     this.svgEl.innerHTML = `
       <defs>
-        <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse">
+        <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
           <path d="M 0 0 L 10 5 L 0 10 z" fill="#6a727a" />
         </marker>
-        <marker id="arrowActive" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse">
+        <marker id="arrowActive" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
           <path d="M 0 0 L 10 5 L 0 10 z" fill="#c45c26" />
         </marker>
       </defs>
@@ -162,14 +165,31 @@ export class GraphCanvas {
     this.canvasEl.querySelectorAll('.graph-node').forEach((n) => n.remove());
     for (const node of project.nodes) {
       const el = document.createElement('div');
-      el.className = 'graph-node' + (node.id === this.selectedId ? ' selected' : '');
+      const gen = node.props?.genStatus;
+      const pendingShell =
+        node.type === 'scene' && !String(node.props?.js || '').trim() && gen !== 'generating';
+      const genClass =
+        gen === 'generating' ? ' generating' : gen === 'pending' || pendingShell ? ' pending' : '';
+      el.className =
+        'graph-node' + (node.id === this.selectedId ? ' selected' : '') + genClass;
       el.dataset.id = node.id;
       el.style.left = `${node.x}px`;
       el.style.top = `${node.y}px`;
       const def = NODE_DEFS.find((d) => d.type === node.type);
+      const badge =
+        gen === 'generating'
+          ? '<div class="gen-badge">生成中</div>'
+          : gen === 'pending' || pendingShell
+            ? '<div class="gen-badge">待代码</div>'
+            : '';
+      const dur =
+        node.type === 'scene' || node.props.duration
+          ? `<span>${node.props.duration || ''}s</span>`
+          : '<span></span>';
       el.innerHTML = `
-        <div class="head"><span>${TYPE_TAG[node.type] || node.type}</span><span>${node.props.duration || ''}s</span></div>
+        <div class="head"><span>${TYPE_TAG[node.type] || node.type}</span>${dur}</div>
         <div class="title">${escapeHtml(node.props.title || def?.label || node.id)}</div>
+        ${badge}
         <div class="ports">
           <div class="port in" data-port="in" title="输入"></div>
           <div class="port out" data-port="out" title="输出"></div>
@@ -235,6 +255,53 @@ export class GraphCanvas {
     this.onChange();
   }
 
+  /**
+   * Port center in SVG / node-canvas coordinates (same origin).
+   * Prefers live DOM measurement so edges stay glued when node height changes.
+   */
+  portPoint(node, side) {
+    const el = this.canvasEl.querySelector(`[data-id="${CSS.escape(node.id)}"]`);
+    const port = el?.querySelector(side === 'out' ? '.port.out' : '.port.in');
+    if (port) {
+      const origin = this.svgEl.getBoundingClientRect();
+      const r = port.getBoundingClientRect();
+      return {
+        x: r.left + r.width / 2 - origin.left,
+        y: r.top + r.height / 2 - origin.top,
+      };
+    }
+    // Fallback before first paint / missing DOM
+    const h = el?.offsetHeight || 56;
+    return side === 'out'
+      ? { x: node.x + NODE_W, y: node.y + h / 2 }
+      : { x: node.x, y: node.y + h / 2 };
+  }
+
+  /** Cubic path that meets ports cleanly for left-right or up-down layouts. */
+  edgePath(x1, y1, x2, y2) {
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+    const adx = Math.abs(dx);
+    const ady = Math.abs(dy);
+
+    // Mostly vertical (attach nodes under a scene): vertical bezier
+    if (ady > adx * 0.9) {
+      const bend = Math.max(28, Math.min(ady * 0.45, 80));
+      const cy1 = y1 + Math.sign(dy || 1) * bend;
+      const cy2 = y2 - Math.sign(dy || 1) * bend;
+      return `M ${x1} ${y1} C ${x1} ${cy1}, ${x2} ${cy2}, ${x2} ${y2}`;
+    }
+
+    // Horizontal / diagonal: horizontal handles from port centers
+    const bend = Math.max(40, Math.min(adx * 0.45, 120));
+    return `M ${x1} ${y1} C ${x1 + bend} ${y1}, ${x2 - bend} ${y2}, ${x2} ${y2}`;
+  }
+
+  pointerToCanvas(clientX, clientY) {
+    const origin = this.svgEl.getBoundingClientRect();
+    return { x: clientX - origin.left, y: clientY - origin.top };
+  }
+
   drawEdges() {
     const project = this.getProject();
     const g = this.svgEl.querySelector('#edgePaths');
@@ -243,12 +310,10 @@ export class GraphCanvas {
       const a = project.nodes.find((n) => n.id === edge.from);
       const b = project.nodes.find((n) => n.id === edge.to);
       if (!a || !b) continue;
-      const x1 = a.x + 156;
-      const y1 = a.y + 40;
-      const x2 = b.x;
-      const y2 = b.y + 40;
-      const mid = (x1 + x2) / 2;
-      const d = `M ${x1} ${y1} C ${mid} ${y1}, ${mid} ${y2}, ${x2} ${y2}`;
+      const p1 = this.portPoint(a, 'out');
+      const p2 = this.portPoint(b, 'in');
+      // Stop short of arrow tip so marker tip sits on the port
+      const d = this.edgePath(p1.x, p1.y, p2.x - 1, p2.y);
 
       const hit = document.createElementNS('http://www.w3.org/2000/svg', 'path');
       hit.setAttribute('d', d);
@@ -288,7 +353,7 @@ export class GraphCanvas {
       if (!node) return;
       node.x = Math.max(0, e.clientX - this.drag.ox);
       node.y = Math.max(0, e.clientY - this.drag.oy);
-      const el = this.canvasEl.querySelector(`[data-id="${node.id}"]`);
+      const el = this.canvasEl.querySelector(`[data-id="${CSS.escape(node.id)}"]`);
       if (el) {
         el.style.left = `${node.x}px`;
         el.style.top = `${node.y}px`;
@@ -299,14 +364,11 @@ export class GraphCanvas {
       const project = this.getProject();
       const a = project.nodes.find((n) => n.id === this.link.from);
       if (!a) return;
-      const rect = this.canvasEl.getBoundingClientRect();
-      const wrap = this.canvasEl.parentElement;
-      const x1 = a.x + 156;
-      const y1 = a.y + 40;
-      const x2 = e.clientX - rect.left + wrap.scrollLeft;
-      const y2 = e.clientY - rect.top + wrap.scrollTop;
-      const mid = (x1 + x2) / 2;
-      this.svgEl.querySelector('#tempEdge').setAttribute('d', `M ${x1} ${y1} C ${mid} ${y1}, ${mid} ${y2}, ${x2} ${y2}`);
+      const p1 = this.portPoint(a, 'out');
+      const p2 = this.pointerToCanvas(e.clientX, e.clientY);
+      this.svgEl
+        .querySelector('#tempEdge')
+        .setAttribute('d', this.edgePath(p1.x, p1.y, p2.x, p2.y));
     }
   }
 

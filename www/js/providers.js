@@ -4,6 +4,31 @@
  * Supports streaming via onDelta(textChunk).
  */
 
+/**
+ * Resolve which provider config to use.
+ * Prefer explicit / active provider; if that has no apiKey, fall back to any provider that has one.
+ * (Fixes single-node AI gen showing NO_KEY when Key sits on another vendor.)
+ */
+export function resolveProviderConfig(settings, provider = 'auto') {
+  const providers = settings?.providers || {};
+  const preferred =
+    !provider || provider === 'auto' ? settings?.activeProvider || 'openai' : provider;
+
+  const tryId = (id) => {
+    const cfg = providers[id];
+    if (cfg && String(cfg.apiKey || '').trim()) return { id, cfg };
+    return null;
+  };
+
+  return (
+    tryId(preferred) ||
+    Object.keys(providers)
+      .map(tryId)
+      .find(Boolean) ||
+    null
+  );
+}
+
 export async function chatCompletion({
   provider,
   settings,
@@ -11,13 +36,13 @@ export async function chatCompletion({
   temperature = 0.7,
   onDelta,
 }) {
-  const id = provider === 'auto' ? settings.activeProvider : provider;
-  const cfg = settings.providers?.[id];
-  if (!cfg?.apiKey) {
-    const err = new Error('NO_KEY');
+  const resolved = resolveProviderConfig(settings, provider);
+  if (!resolved) {
+    const err = new Error('未配置 API Key：请在「设置 → API / 模型」中填写密钥后再生成');
     err.code = 'NO_KEY';
     throw err;
   }
+  const { id, cfg } = resolved;
 
   if (id === 'anthropic') {
     return anthropicChat(cfg, messages, temperature, onDelta);
@@ -32,6 +57,7 @@ async function openaiChat(cfg, messages, temperature, onDelta) {
     model: cfg.model,
     temperature,
     messages,
+    max_tokens: 16384,
     response_format: { type: 'json_object' },
   };
 
@@ -133,7 +159,7 @@ async function anthropicChat(cfg, messages, temperature, onDelta) {
   const url = `${base}/v1/messages`;
   const body = {
     model: cfg.model,
-    max_tokens: 8192,
+    max_tokens: 16384,
     temperature,
     system,
     messages: userMsgs.map((m) => ({

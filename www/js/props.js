@@ -31,7 +31,9 @@ export function renderProps(el, node, {
   if (node.type === 'scene') {
     fields.push(areaField('prompt', '本镜 AI 提示词', p.prompt || p.text || ''));
     fields.push(areaField('text', '字幕/说明', p.text || ''));
-    fields.push(`<p class="muted hint">AI 生成会注入 sequence 前后镜 + 成片主题，保证连贯</p>`);
+    fields.push(
+      `<p class="muted hint">AI 生成会注入前后镜、已挂载节点与成片主题；与导演共用设置里的 API Key</p>`,
+    );
     fields.push(
       `<div class="prop-actions"><button type="button" class="btn accent" id="propGenScene">AI 生成此镜</button></div>`,
     );
@@ -79,15 +81,34 @@ export function renderProps(el, node, {
         'run',
         'talk',
         'wave',
+        'look',
+        'turn',
+        'gesture',
+      ]),
+    );
+    fields.push(
+      selectField('expression', '表情', p.expression || 'gaze', [
+        'calm',
+        'gaze',
+        'smile',
+        'press',
+        'surprise',
+        'tired',
+        'resolve',
+        'sad',
       ]),
     );
     fields.push(selectField('look', '造型', p.look || 'default', ['default', 'umbrella']));
+    fields.push(`<p class="muted hint">表情与动作须在人物 JS 的 draw 里随 t 画出（眉眼嘴 + 关节相位），勿只改下拉不改代码。</p>`);
     fields.push(field('coatColor', '衣服色', p.coatColor || '#1a2230'));
     fields.push(field('skinColor', '肤色', p.skinColor || '#c9a088'));
     fields.push(field('hairColor', '发色', p.hairColor || '#2a2018'));
     fields.push(`<label class="row"><input type="checkbox" data-prop-bool="umbrella" ${p.umbrella ? 'checked' : ''}/> 雨伞</label>`);
     fields.push(
       `<div class="prop-actions"><button type="button" class="btn accent" id="propGenChar">AI 生成人物代码</button></div>`,
+    );
+    fields.push(
+      `<p class="muted hint">生成时注入挂载分镜 + 同镜节点 + 前后镜人物；共用设置里的 API Key</p>`,
     );
     fields.push(`<p class="muted hint">人物用 HTML/CSS/JS 绘制；draw({rect,motion,t}) 控制形象与动作。改 JS 后点应用</p>`);
     fields.push(areaField('html', '人物 HTML', p.html || ''));
@@ -122,6 +143,9 @@ export function renderProps(el, node, {
     );
     fields.push(
       `<div class="prop-actions"><button type="button" class="btn accent" id="propGenFx">AI 生成特效代码</button></div>`,
+    );
+    fields.push(
+      `<p class="muted hint">生成时注入挂载分镜光色/天气 + 同镜人物/运镜；共用设置里的 API Key</p>`,
     );
     fields.push(`<p class="muted hint">特效用 HTML/CSS/JS；draw({rect,motion,t})。改代码后点应用</p>`);
     fields.push(areaField('html', '特效 HTML', p.html || ''));

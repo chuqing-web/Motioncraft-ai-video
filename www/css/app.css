@@ -212,18 +212,46 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 }
 
 .graph-node {
+  --node-w: 156px;
+  --port-size: 10px;
   position: absolute;
-  width: 156px;
+  width: var(--node-w);
+  box-sizing: border-box;
   background: var(--node);
   border: 1px solid var(--line-strong);
   border-radius: var(--radius);
   z-index: 3;
   cursor: move;
   user-select: none;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  padding-bottom: 8px;
 }
 .graph-node.selected {
   border-color: var(--accent);
   outline: 1px solid var(--accent);
+}
+.graph-node.pending {
+  border-style: dashed;
+  opacity: 0.88;
+}
+.graph-node.generating {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent);
+  animation: node-gen-pulse 1.2s ease-in-out infinite;
+}
+.graph-node .gen-badge {
+  margin: 0 8px 6px;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  color: var(--accent);
+  font-weight: 600;
+}
+.graph-node.pending .gen-badge {
+  color: var(--muted);
+}
+@keyframes node-gen-pulse {
+  0%, 100% { box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 30%, transparent); }
+  50% { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 55%, transparent); }
 }
 .graph-node .head {
   display: flex;
@@ -236,28 +264,45 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
   letter-spacing: 0.04em;
 }
 .graph-node .title {
-  padding: 0 8px 8px;
+  padding: 0 8px 4px;
   font-weight: 600;
   font-size: 13px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
+/* Ports sit on left/right midpoints so edges always meet the anchors */
 .graph-node .ports {
-  display: flex;
-  justify-content: space-between;
-  padding: 0 6px 6px;
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
 }
 .port {
-  width: 10px;
-  height: 10px;
-  border-radius: 1px;
+  position: absolute;
+  top: 50%;
+  width: var(--port-size);
+  height: var(--port-size);
+  margin-top: calc(var(--port-size) / -2);
+  border-radius: 50%;
   background: var(--line-strong);
-  border: 1px solid var(--text);
+  border: 1.5px solid var(--text);
+  box-sizing: border-box;
   cursor: crosshair;
+  pointer-events: auto;
+  z-index: 4;
 }
-.port.in { background: var(--ok); }
-.port.out { background: var(--accent); }
+.port.in {
+  left: calc(var(--port-size) / -2);
+  background: var(--ok);
+}
+.port.out {
+  right: calc(var(--port-size) / -2);
+  background: var(--accent);
+}
+.port:hover {
+  transform: scale(1.25);
+  border-color: var(--accent);
+}
 
 .empty-canvas {
   position: absolute;
@@ -727,6 +772,67 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.55); }
   font-family: Consolas, monospace;
   white-space: pre-wrap;
   display: none;
+}
+
+/* —— Project session gate —— */
+.project-gate {
+  position: fixed;
+  inset: 0;
+  z-index: 500;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background:
+    radial-gradient(ellipse at 30% 20%, rgba(196, 92, 38, 0.12), transparent 50%),
+    radial-gradient(ellipse at 70% 80%, rgba(60, 70, 80, 0.35), transparent 45%),
+    var(--bg);
+}
+.project-gate.hidden { display: none; }
+.project-gate-card {
+  width: min(420px, calc(100vw - 48px));
+  padding: 36px 32px 28px;
+  border: 1px solid var(--line-strong);
+  background: var(--panel);
+}
+.project-gate-brand {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 18px;
+}
+.project-gate-card h1 {
+  margin: 0 0 10px;
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+.project-gate-desc {
+  margin: 0 0 24px;
+  color: var(--muted);
+  line-height: 1.55;
+  font-size: 13px;
+}
+.project-gate-desc code {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text);
+  background: var(--panel-2);
+  padding: 1px 5px;
+  border-radius: var(--radius);
+}
+.project-gate-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.project-gate-actions .btn { min-width: 120px; }
+.project-gate-hint { margin: 18px 0 0; font-size: 12px; line-height: 1.45; }
+#app.app-locked {
+  pointer-events: none;
+  user-select: none;
+  filter: grayscale(0.35) brightness(0.55);
 }
 
 .ctx-menu {

@@ -11,7 +11,12 @@ public sealed class MainForm : Form
     BridgeServer? _bridge;
     AppSettings _settings = AppSettings.Load();
     string _cachedProjectJson = "{}";
+    string? _currentProjectPath;
     readonly TaskCompletionSource _webReady = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    CancellationTokenSource? _autosaveCts;
+    bool _autosaveSuspended;
+    bool _autosaveDirty;
+    DateTime _lastAutosaveUtc;
 
     public MainForm()
     {
@@ -34,15 +39,25 @@ public sealed class MainForm : Form
         MainMenuStrip = _menu;
 
         Load += async (_, _) => await InitAsync();
-        FormClosed += (_, _) => _bridge?.Dispose();
+        FormClosing += (_, e) =>
+        {
+            try { FlushAutosave(); }
+            catch { /* best-effort */ }
+        };
+        FormClosed += (_, _) =>
+        {
+            _autosaveCts?.Cancel();
+            _bridge?.Dispose();
+        };
     }
 
     void BuildMenu()
     {
         var file = new ToolStripMenuItem("文件");
-        file.DropDownItems.Add("新建项目", null, async (_, _) => await ExecJs("MotionCraftAPI.newProject()"));
+        file.DropDownItems.Add("新建工程…", null, async (_, _) => await NewProject());
         file.DropDownItems.Add("打开…", null, async (_, _) => await OpenProject());
-        file.DropDownItems.Add("保存…", null, async (_, _) => await SaveProject());
+        file.DropDownItems.Add("保存", null, async (_, _) => await SaveProject(saveAs: false));
+        file.DropDownItems.Add("另存为…", null, async (_, _) => await SaveProject(saveAs: true));
         file.DropDownItems.Add(new ToolStripSeparator());
         file.DropDownItems.Add("退出", null, (_, _) => Close());
 
@@ -64,13 +79,13 @@ public sealed class MainForm : Form
         var help = new ToolStripMenuItem("帮助");
         help.DropDownItems.Add("快捷键", null, (_, _) =>
             MessageBox.Show(
-                "Ctrl+N 新建\nCtrl+O 打开\nCtrl+S 保存\nDelete 删除节点/连线\nEsc 关闭预览\n空格 预览/暂停\nSpace+拖拽 平移画布",
+                "Ctrl+N 新建工程\nCtrl+O 打开\nCtrl+S 保存\nDelete 删除节点/连线\nEsc 关闭预览\n空格 预览/暂停\nSpace+拖拽 平移画布",
                 "快捷键",
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Information));
         help.DropDownItems.Add("关于", null, (_, _) =>
             MessageBox.Show(
-                "MotionCraft — AI Motion Studio\n大模型输出 HTML/CSS/JS 绘制帧 · DPAPI 加密密钥 · MCP 桥接",
+                "MotionCraft — AI Motion Studio\n工程文件 .vd（加密单文件）· DPAPI 加密 API Key · MCP 桥接",
                 "关于",
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Information));
@@ -88,11 +103,14 @@ public sealed class MainForm : Form
             await _web.EnsureCoreWebView2Async();
             _web.CoreWebView2.Settings.AreDevToolsEnabled = true;
             _web.CoreWebView2.WebMessageReceived += OnWebMessage;
+            _web.CoreWebView2.DownloadStarting += OnDownloadStarting;
 
             _bridge = new BridgeServer(this);
             _bridge.Start(_settings.BridgePort);
             _settings.BridgePort = _bridge.Port;
             _settings.Save();
+
+            ProjectVault.ProjectDir();
 
             var www = WwwDir();
             var index = Path.Combine(www, "index.html");
@@ -164,7 +182,15 @@ public sealed class MainForm : Form
             var root = doc.RootElement;
             var type = root.GetProperty("type").GetString();
             if (type == "project" && root.TryGetProperty("data", out var data))
-                _cachedProjectJson = data.GetRawText();
+            {
+                // Ignore stale posts while opening/creating a session (prevents wiping .vd)
+                if (!_autosaveSuspended)
+                {
+                    _cachedProjectJson = data.GetRawText();
+                    _autosaveDirty = true;
+                    ScheduleAutosave();
+                }
+            }
             else if (type == "aiStream" && root.TryGetProperty("data", out var stream))
                 _aiProgressJson = stream.GetRawText();
             else if (type == "saveSettings" && root.TryGetProperty("data", out var s))
@@ -177,11 +203,206 @@ public sealed class MainForm : Form
             else if (type == "openProject")
                 BeginInvoke(async () => await OpenProject());
             else if (type == "saveProject")
-                BeginInvoke(async () => await SaveProject());
+                BeginInvoke(async () => await SaveProject(saveAs: false));
+            else if (type == "saveProjectAs")
+                BeginInvoke(async () => await SaveProject(saveAs: true));
             else if (type == "newProject")
-                BeginInvoke(async () => await ExecJs("MotionCraftAPI.newProject()"));
+                BeginInvoke(async () => await NewProject());
+            else if (type == "exportVideo")
+                BeginInvoke(() => SaveExportVideo(root));
         }
         catch { /* ignore malformed */ }
+    }
+
+    /// <summary>
+    /// Redirect browser downloads of exported video next to the open .vd file.
+    /// </summary>
+    void OnDownloadStarting(object? sender, CoreWebView2DownloadStartingEventArgs e)
+    {
+        try
+        {
+            var suggested = e.ResultFilePath ?? "";
+            var ext = Path.GetExtension(suggested).ToLowerInvariant();
+            if (ext is not (".mp4" or ".webm" or ".mkv"))
+                return;
+
+            var dest = ResolveExportPath(ext);
+            if (string.IsNullOrEmpty(dest))
+            {
+                e.Cancel = true;
+                return;
+            }
+
+            e.ResultFilePath = dest;
+            e.Handled = true;
+
+            var op = e.DownloadOperation;
+            void OnStateChanged(object? s, object? args)
+            {
+                if (op.State != CoreWebView2DownloadState.Completed) return;
+                op.StateChanged -= OnStateChanged;
+                BeginInvoke(() => NotifyExportSaved(dest));
+            }
+            op.StateChanged += OnStateChanged;
+        }
+        catch
+        {
+            // fall through to default download behavior
+        }
+    }
+
+    /// <summary>Same directory as .vd; basename matches the project file.</summary>
+    string? ResolveExportPath(string ext)
+    {
+        if (string.IsNullOrEmpty(ext)) ext = ".mp4";
+        if (!ext.StartsWith('.')) ext = "." + ext;
+
+        if (!string.IsNullOrEmpty(_currentProjectPath))
+        {
+            var dir = Path.GetDirectoryName(_currentProjectPath);
+            if (!string.IsNullOrEmpty(dir) && Directory.Exists(dir))
+            {
+                var baseName = Path.GetFileNameWithoutExtension(_currentProjectPath);
+                return Path.Combine(dir, baseName + ext);
+            }
+        }
+
+        using var dlg = new SaveFileDialog
+        {
+            Title = "导出视频",
+            Filter = ext.Equals(".mp4", StringComparison.OrdinalIgnoreCase)
+                ? "MP4 视频 (*.mp4)|*.mp4|所有文件 (*.*)|*.*"
+                : "视频 (*.mp4;*.webm)|*.mp4;*.webm|所有文件 (*.*)|*.*",
+            DefaultExt = ext.TrimStart('.'),
+            AddExtension = true,
+            FileName = (Path.GetFileNameWithoutExtension(_currentProjectPath) ?? "motioncraft") + ext,
+            InitialDirectory = ProjectVault.ProjectDir(),
+            OverwritePrompt = true,
+        };
+        return dlg.ShowDialog(this) == DialogResult.OK ? dlg.FileName : null;
+    }
+
+    void SaveExportVideo(JsonElement root)
+    {
+        try
+        {
+            var fileName = root.TryGetProperty("fileName", out var fn) ? fn.GetString() : null;
+            var b64 = root.TryGetProperty("base64", out var b) ? b.GetString() : null;
+            if (string.IsNullOrWhiteSpace(b64))
+            {
+                MessageBox.Show("导出数据为空。", "MotionCraft", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            var ext = Path.GetExtension(fileName ?? "").ToLowerInvariant();
+            if (ext is not (".mp4" or ".webm" or ".mkv"))
+                ext = ".mp4";
+
+            var dest = ResolveExportPath(ext);
+            if (string.IsNullOrEmpty(dest)) return;
+
+            var bytes = Convert.FromBase64String(b64);
+            File.WriteAllBytes(dest, bytes);
+            NotifyExportSaved(dest);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show("导出视频失败: " + ex.Message, "MotionCraft", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+    }
+
+    void NotifyExportSaved(string path)
+    {
+        try
+        {
+            var envelope = JsonSerializer.Serialize(new { type = "exportSaved", path });
+            _web.CoreWebView2?.PostWebMessageAsJson(envelope);
+        }
+        catch { /* ignore */ }
+        UpdateTitle();
+    }
+
+    void ScheduleAutosave()
+    {
+        if (_autosaveSuspended || string.IsNullOrEmpty(_currentProjectPath) || !_autosaveDirty)
+            return;
+
+        _autosaveCts?.Cancel();
+        _autosaveCts = new CancellationTokenSource();
+        var token = _autosaveCts.Token;
+        var path = _currentProjectPath;
+        var json = _cachedProjectJson;
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(500, token);
+                if (token.IsCancellationRequested) return;
+                if (_autosaveSuspended || string.IsNullOrEmpty(path)) return;
+                if (string.IsNullOrWhiteSpace(json) || json == "{}") return;
+
+                // Re-read latest cache on UI thread snapshot
+                string? latestPath = null;
+                string? latestJson = null;
+                var ready = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                BeginInvoke(() =>
+                {
+                    latestPath = _currentProjectPath;
+                    latestJson = _cachedProjectJson;
+                    ready.TrySetResult();
+                });
+                await ready.Task;
+                if (token.IsCancellationRequested) return;
+                if (_autosaveSuspended || string.IsNullOrEmpty(latestPath)) return;
+                if (string.IsNullOrWhiteSpace(latestJson) || latestJson == "{}") return;
+
+                ProjectVault.Save(latestPath, latestJson);
+                _lastAutosaveUtc = DateTime.UtcNow;
+                _autosaveDirty = false;
+                BeginInvoke(() =>
+                {
+                    UpdateTitle(autosaved: true);
+                    _ = NotifyFrontendAutosaveAsync(latestPath);
+                });
+            }
+            catch (TaskCanceledException) { /* coalesced */ }
+            catch (Exception ex)
+            {
+                BeginInvoke(() =>
+                {
+                    // Soft fail — don't block editing
+                    System.Diagnostics.Debug.WriteLine("autosave failed: " + ex.Message);
+                });
+            }
+        }, token);
+    }
+
+    void FlushAutosave()
+    {
+        if (_autosaveSuspended || string.IsNullOrEmpty(_currentProjectPath) || !_autosaveDirty)
+            return;
+        var json = _cachedProjectJson;
+        if (string.IsNullOrWhiteSpace(json) || json == "{}") return;
+        try
+        {
+            ProjectVault.Save(_currentProjectPath, json);
+            _autosaveDirty = false;
+            _lastAutosaveUtc = DateTime.UtcNow;
+        }
+        catch { /* closing */ }
+    }
+
+    Task NotifyFrontendAutosaveAsync(string path)
+    {
+        if (_web.CoreWebView2 == null) return Task.CompletedTask;
+        try
+        {
+            var payload = JsonSerializer.Serialize(new { type = "projectAutosaved", path });
+            _web.CoreWebView2.PostWebMessageAsJson(payload);
+        }
+        catch { /* ignore */ }
+        return Task.CompletedTask;
     }
 
     static string WwwDir()
@@ -297,6 +518,72 @@ public sealed class MainForm : Form
             $"window.MotionCraftAPI && window.MotionCraftAPI.setProjectFromBase64('{b64}')");
     });
 
+    async Task OpenProjectSessionAsync(string json, string path)
+    {
+        await _webReady.Task;
+        _autosaveSuspended = true;
+        _autosaveCts?.Cancel();
+        try
+        {
+            var normalized = ProjectVault.NormalizeAndValidate(json);
+            _cachedProjectJson = normalized;
+            _currentProjectPath = path;
+            _autosaveDirty = false;
+            UpdateTitle();
+
+            using var projectDoc = JsonDocument.Parse(normalized);
+            var envelope = JsonSerializer.Serialize(new
+            {
+                type = "openProjectSession",
+                path,
+                project = projectDoc.RootElement,
+            });
+
+            // PostWebMessageAsJson — avoids ExecuteScript size limits on large graphs.
+            // Retry until frontend acks (ES module may still be booting).
+            var pathJson = JsonSerializer.Serialize(path);
+            var applied = false;
+            for (var i = 0; i < 40; i++)
+            {
+                _web.CoreWebView2.PostWebMessageAsJson(envelope);
+                try
+                {
+                    await _web.CoreWebView2.ExecuteScriptAsync(
+                        "window.MotionCraftAPI && window.MotionCraftAPI.flushPendingHostMsg && window.MotionCraftAPI.flushPendingHostMsg()");
+                }
+                catch { /* page may not be ready */ }
+
+                var check = await _web.CoreWebView2.ExecuteScriptAsync(
+                    $"(window.__mcSessionPath === {pathJson} && window.__mcSessionOpen === true)");
+                if (check == "true")
+                {
+                    applied = true;
+                    break;
+                }
+                await Task.Delay(50);
+            }
+
+            if (!applied)
+                throw new InvalidOperationException("界面未能加载工程（可重试打开）。");
+
+            // Brief settle so first syncHost isn't treated as foreign dirty
+            await Task.Delay(200);
+            _cachedProjectJson = normalized;
+            _autosaveDirty = false;
+        }
+        finally
+        {
+            _autosaveSuspended = false;
+        }
+    }
+
+    void UpdateTitle(bool autosaved = false)
+    {
+        var name = Path.GetFileName(_currentProjectPath);
+        var baseTitle = string.IsNullOrEmpty(name) ? "MotionCraft" : $"MotionCraft — {name}";
+        Text = autosaved ? baseTitle + " · 已自动保存" : baseTitle;
+    }
+
     public Task<string> RunCommandAsync(string commandJson) => OnUiAsync(async () =>
     {
         await _webReady.Task;
@@ -341,29 +628,121 @@ public sealed class MainForm : Form
         await _web.CoreWebView2.ExecuteScriptAsync(expr);
     }
 
+    async Task NewProject()
+    {
+        var projectDir = ProjectVault.ProjectDir();
+        using var dlg = new SaveFileDialog
+        {
+            Filter = ProjectVault.FileFilter,
+            DefaultExt = "vd",
+            AddExtension = true,
+            InitialDirectory = projectDir,
+            FileName = ProjectVault.SuggestFileName("未命名项目"),
+            Title = "新建工程",
+            OverwritePrompt = true,
+        };
+        if (dlg.ShowDialog(this) != DialogResult.OK) return;
+
+        var fileName = dlg.FileName;
+        if (!fileName.EndsWith(ProjectVault.Extension, StringComparison.OrdinalIgnoreCase))
+            fileName += ProjectVault.Extension;
+
+        var name = Path.GetFileNameWithoutExtension(fileName);
+        var json = ProjectVault.EmptyProjectJson(name);
+        try
+        {
+            FlushAutosave();
+            ProjectVault.Save(fileName, json);
+            await OpenProjectSessionAsync(json, fileName);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show("新建工程失败: " + ex.Message, "MotionCraft", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+    }
+
     async Task OpenProject()
     {
         using var dlg = new OpenFileDialog
         {
-            Filter = "MotionCraft 项目 (*.motioncraft.json)|*.motioncraft.json|JSON (*.json)|*.json",
-            Title = "打开项目"
+            Filter = ProjectVault.FileFilter,
+            DefaultExt = "vd",
+            InitialDirectory = string.IsNullOrEmpty(_currentProjectPath)
+                ? ProjectVault.ProjectDir()
+                : (Path.GetDirectoryName(_currentProjectPath) is { } cur && Directory.Exists(cur)
+                    ? cur
+                    : ProjectVault.ProjectDir()),
+            Title = "打开工程",
+            CheckFileExists = true,
+            Multiselect = false,
         };
         if (dlg.ShowDialog(this) != DialogResult.OK) return;
-        var json = await File.ReadAllTextAsync(dlg.FileName);
-        await SetProjectJsonAsync(json);
+        try
+        {
+            FlushAutosave();
+            var json = ProjectVault.Load(dlg.FileName);
+            await OpenProjectSessionAsync(json, dlg.FileName);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show("打开工程失败: " + ex.Message, "MotionCraft", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
     }
 
-    async Task SaveProject()
+    async Task SaveProject(bool saveAs)
     {
-        using var dlg = new SaveFileDialog
-        {
-            Filter = "MotionCraft 项目 (*.motioncraft.json)|*.motioncraft.json",
-            FileName = "project.motioncraft.json",
-            Title = "保存项目"
-        };
-        if (dlg.ShowDialog(this) != DialogResult.OK) return;
+        _autosaveCts?.Cancel();
         var json = await GetProjectJsonAsync();
-        await File.WriteAllTextAsync(dlg.FileName, json);
+        if (string.IsNullOrWhiteSpace(json) || json == "{}")
+        {
+            MessageBox.Show("当前没有可保存的工程内容。", "MotionCraft", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        string? path = _currentProjectPath;
+        if (saveAs || string.IsNullOrEmpty(path))
+        {
+            string? projectName = null;
+            try
+            {
+                using var doc = JsonDocument.Parse(json);
+                if (doc.RootElement.TryGetProperty("name", out var n))
+                    projectName = n.GetString();
+            }
+            catch { /* ignore */ }
+
+            using var dlg = new SaveFileDialog
+            {
+                Filter = ProjectVault.FileFilter,
+                DefaultExt = "vd",
+                AddExtension = true,
+                InitialDirectory = Path.GetDirectoryName(path) is { } d && Directory.Exists(d)
+                    ? d
+                    : ProjectVault.ProjectDir(),
+                FileName = Path.GetFileName(path) ?? ProjectVault.SuggestFileName(projectName),
+                Title = saveAs ? "另存为" : "保存工程",
+                OverwritePrompt = true,
+            };
+            if (dlg.ShowDialog(this) != DialogResult.OK) return;
+            path = dlg.FileName;
+            if (!path.EndsWith(ProjectVault.Extension, StringComparison.OrdinalIgnoreCase))
+                path += ProjectVault.Extension;
+        }
+
+        try
+        {
+            ProjectVault.Save(path, json);
+            _currentProjectPath = path;
+            _cachedProjectJson = json;
+            _autosaveDirty = false;
+            UpdateTitle();
+            var envelope = JsonSerializer.Serialize(new { type = "sessionPath", path });
+            _web.CoreWebView2?.PostWebMessageAsJson(envelope);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show("保存工程失败: " + ex.Message, "MotionCraft", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
     }
 
     async void ShowSettingsDialog()

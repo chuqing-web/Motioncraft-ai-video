@@ -39,6 +39,44 @@ export function createEmptyProject(name = '未命名项目') {
   };
 }
 
+/** Coerce loaded / host JSON into a safe project shape (fixes partial opens). */
+export function normalizeProject(raw, fallbackName = '未命名项目') {
+  const base = createEmptyProject(
+    (raw && typeof raw.name === 'string' && raw.name.trim()) || fallbackName,
+  );
+  if (!raw || typeof raw !== 'object') return base;
+
+  const settings = raw.settings && typeof raw.settings === 'object' ? raw.settings : {};
+  const timeline =
+    raw.timeline && typeof raw.timeline === 'object'
+      ? {
+          tracks: Array.isArray(raw.timeline.tracks) ? raw.timeline.tracks : [],
+        }
+      : base.timeline;
+
+  return {
+    ...base,
+    ...raw,
+    version: Number(raw.version) || 1,
+    name: typeof raw.name === 'string' && raw.name.trim() ? raw.name : base.name,
+    createdAt: typeof raw.createdAt === 'string' ? raw.createdAt : base.createdAt,
+    updatedAt: typeof raw.updatedAt === 'string' ? raw.updatedAt : base.updatedAt,
+    settings: {
+      ...base.settings,
+      ...settings,
+      width: Number(settings.width) || base.settings.width,
+      height: Number(settings.height) || base.settings.height,
+      fps: Number(settings.fps) || base.settings.fps,
+      duration: Number(settings.duration) || base.settings.duration,
+      durationCap: Number(settings.durationCap) || base.settings.durationCap,
+    },
+    assets: Array.isArray(raw.assets) ? raw.assets : [],
+    nodes: Array.isArray(raw.nodes) ? raw.nodes : [],
+    edges: Array.isArray(raw.edges) ? raw.edges : [],
+    timeline,
+  };
+}
+
 export function defaultProps(type) {
   const base = { title: NODE_DEFS.find((d) => d.type === type)?.label || type, duration: 3 };
   switch (type) {

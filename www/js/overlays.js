@@ -24,18 +24,39 @@ function getCodeRuntime(props, type) {
   const js = (props.js && String(props.js).includes('draw') ? props.js : '') || fallbackJs(type);
   const key = type + ':' + js.length + ':' + js.slice(0, 80) + ':' + js.slice(-40);
   if (codeRuntimeCache.has(key)) return codeRuntimeCache.get(key);
-  const runtime = compileSceneRuntime(js);
+  const runtime = compileSceneRuntime(js, { persistProps: props });
+  // Cache under repaired source key if host rewrote props.js
+  const fixed = props.js && String(props.js);
+  if (fixed && fixed !== js) {
+    const key2 = type + ':' + fixed.length + ':' + fixed.slice(0, 80) + ':' + fixed.slice(-40);
+    codeRuntimeCache.set(key2, runtime);
+  }
   codeRuntimeCache.set(key, runtime);
   return runtime;
+}
+
+/** Atmospheric FX must cover the full frame — partial rects create hard “panel” boxes. */
+function isAtmosphericEffect(props, motion) {
+  if (props?.localFx) return false;
+  const kind = String(motion || props?.motion || props?.effect || '');
+  if (/particles|glow|fade|rain|spark|dust|fog|mist|bloom|bokeh|雪|雾|雨|尘|光/i.test(kind)) return true;
+  const L = props?.layout;
+  if (L && Number(L.w) >= 0.85 && Number(L.h) >= 0.85) return true;
+  return false;
 }
 
 /** Shared HTML/CSS/JS overlay painter for character / chart / effect */
 function paintCodeOverlay(ctx, canvas, t, duration, props, node, type, defaultMotion) {
   ensureLayout(props, type);
-  const r = rectOf(props, type, canvas);
+  const motion = props.motion || props.effect || defaultMotion;
+  if (type === 'effect' && isAtmosphericEffect(props, motion)) {
+    props.layout = { x: 0, y: 0, w: 1, h: 1 };
+  }
+  const r =
+    type === 'effect' && isAtmosphericEffect(props, motion)
+      ? { x: 0, y: 0, w: canvas.width, h: canvas.height }
+      : rectOf(props, type, canvas);
   const runtime = getCodeRuntime(props, type);
-  const motion =
-    props.motion || props.effect || defaultMotion;
 
   const flag = '_codeSetupDone';
   if (node && !node[flag]) {
@@ -83,8 +104,7 @@ function paintCodeOverlay(ctx, canvas, t, duration, props, node, type, defaultMo
     });
   } catch (err) {
     console.warn(type + ' draw failed', err);
-    ctx.fillStyle = 'rgba(255,0,0,0.15)';
-    ctx.fillRect(r.x, r.y, r.w, r.h);
+    // Do not paint a tinted box — that reads as a broken “panel” on screen
   }
 }
 
@@ -112,17 +132,18 @@ export function applyCameraTransform(ctx, canvas, cam, localT, duration) {
   const move = cam.props.move || 'pan';
   const dur = Math.max(0.01, duration || 4);
   const u = Math.min(1, Math.max(0, localT / dur));
+  // smoother cinematic ease (less snappy than classic smoothstep alone)
   const ease = u * u * (3 - 2 * u);
   const easeIn = u * u;
   const easeOut = 1 - (1 - u) * (1 - u);
   const w = canvas.width;
   const h = canvas.height;
 
-  // handheld noise (shared)
-  const shakeAmp = intensity * (move === 'handheld' ? 10 : 3.5);
-  const handX = Math.sin(localT * 7.3) * shakeAmp + Math.sin(localT * 13.1) * shakeAmp * 0.35;
-  const handY = Math.cos(localT * 6.1) * shakeAmp * 0.75 + Math.sin(localT * 11.7) * shakeAmp * 0.25;
-  const handRot = (Math.sin(localT * 4.2) * intensity * (move === 'handheld' ? 0.012 : 0.004));
+  // Subtle handheld — strong shake reads as broken framing
+  const shakeAmp = intensity * (move === 'handheld' ? 5.5 : 2.2);
+  const handX = Math.sin(localT * 5.1) * shakeAmp + Math.sin(localT * 9.7) * shakeAmp * 0.28;
+  const handY = Math.cos(localT * 4.4) * shakeAmp * 0.7 + Math.sin(localT * 8.3) * shakeAmp * 0.22;
+  const handRot = Math.sin(localT * 3.1) * intensity * (move === 'handheld' ? 0.007 : 0.0025);
 
   const pivot = () => {
     ctx.translate(w / 2, h / 2);
@@ -132,9 +153,8 @@ export function applyCameraTransform(ctx, canvas, cam, localT, duration) {
   };
 
   if (move === 'static') {
-    // locked off with visible settle at head
-    const settle = (1 - easeOut) * intensity * 8;
-    ctx.translate(settle * 0.4 + handX * 0.15, settle * 0.2 + handY * 0.15);
+    const settle = (1 - easeOut) * intensity * 5;
+    ctx.translate(settle * 0.35 + handX * 0.12, settle * 0.15 + handY * 0.12);
     return;
   }
 
@@ -142,49 +162,47 @@ export function applyCameraTransform(ctx, canvas, cam, localT, duration) {
     pivot();
     ctx.rotate(handRot);
     ctx.translate(handX, handY);
-    const sc = 1.06 + intensity * 0.04; // slight crop so shake doesn't show edges
+    const sc = 1.08 + intensity * 0.03; // overscan hides shake edges
     ctx.scale(sc, sc);
     unpivot();
     return;
   }
 
   if (move === 'pan') {
-    // wide horizontal travel — clearly readable
     const sweep = (ease - 0.5) * 2;
-    const dx = sweep * intensity * 120 + handX;
-    const dy = Math.sin(ease * Math.PI) * intensity * 18 + handY;
+    const dx = sweep * intensity * 72 + handX;
+    const dy = Math.sin(ease * Math.PI) * intensity * 12 + handY;
     pivot();
-    ctx.rotate(handRot * 0.5);
+    ctx.rotate(handRot * 0.45);
     ctx.translate(dx, dy);
-    ctx.scale(1.08 + intensity * 0.04, 1.08 + intensity * 0.04); // overscan
+    ctx.scale(1.1 + intensity * 0.03, 1.1 + intensity * 0.03);
     unpivot();
     return;
   }
 
   if (move === 'zoom') {
-    const sc = 1 + intensity * 0.35 * ease;
+    const sc = 1 + intensity * 0.22 * ease;
     pivot();
-    ctx.rotate(handRot);
-    ctx.translate(handX * 0.5, handY * 0.5);
+    ctx.rotate(handRot * 0.6);
+    ctx.translate(handX * 0.4, handY * 0.4);
     ctx.scale(sc, sc);
     unpivot();
     return;
   }
 
   if (move === 'zoomOut') {
-    const sc = 1 + intensity * 0.35 * (1 - ease);
+    const sc = 1 + intensity * 0.22 * (1 - ease);
     pivot();
-    ctx.rotate(handRot);
-    ctx.translate(handX * 0.4, handY * 0.4);
-    ctx.scale(Math.max(1.02, sc), Math.max(1.02, sc));
+    ctx.rotate(handRot * 0.6);
+    ctx.translate(handX * 0.35, handY * 0.35);
+    ctx.scale(Math.max(1.04, sc), Math.max(1.04, sc));
     unpivot();
     return;
   }
 
   if (move === 'tilt') {
-    // dutch / roll + slight rise
-    const ang = (ease - 0.5) * 2 * intensity * 0.08;
-    const dy = (easeIn - 0.5) * intensity * 40;
+    const ang = (ease - 0.5) * 2 * intensity * 0.05;
+    const dy = (easeIn - 0.5) * intensity * 24;
     pivot();
     ctx.rotate(ang + handRot);
     ctx.translate(handX, dy + handY);
@@ -193,8 +211,11 @@ export function applyCameraTransform(ctx, canvas, cam, localT, duration) {
     return;
   }
 
-  // fallback: gentle pan
-  ctx.translate((ease - 0.5) * intensity * 80 + handX, handY);
+  // fallback: gentle pan with overscan
+  pivot();
+  ctx.translate((ease - 0.5) * intensity * 56 + handX, handY);
+  ctx.scale(1.08, 1.08);
+  unpivot();
 }
 
 /**
@@ -212,59 +233,39 @@ export function paintCameraChrome(ctx, canvas, cam, localT, duration) {
 
   ctx.save();
   if (letterbox) {
-    const bar = h * (0.08 + intensity * 0.02);
+    // Slimmer bars — thick bars + vignette stacked like opaque “panels”
+    const bar = h * (0.055 + intensity * 0.012);
     ctx.fillStyle = '#000';
-    ctx.globalAlpha = 0.92;
+    ctx.globalAlpha = 0.88;
     ctx.fillRect(0, 0, w, bar);
     ctx.fillRect(0, h - bar, w, bar);
-    // thin accent line on bars
-    ctx.globalAlpha = 0.55;
+    ctx.globalAlpha = 0.35;
     ctx.fillStyle = '#c45c26';
     ctx.fillRect(0, bar - 1, w, 1);
     ctx.fillRect(0, h - bar, w, 1);
   }
 
-  // cinematic vignette
-  const vig = ctx.createRadialGradient(w / 2, h / 2, h * 0.2, w / 2, h / 2, h * 0.78);
+  // Soft vignette (avoid a second dark rectangle in the frame)
+  const vig = ctx.createRadialGradient(w / 2, h / 2, h * 0.28, w / 2, h / 2, h * 0.82);
   vig.addColorStop(0, 'rgba(0,0,0,0)');
-  vig.addColorStop(1, `rgba(0,0,0,${0.35 + intensity * 0.12})`);
+  vig.addColorStop(0.65, 'rgba(0,0,0,0)');
+  vig.addColorStop(1, `rgba(0,0,0,${0.22 + intensity * 0.08})`);
   ctx.globalAlpha = 1;
   ctx.fillStyle = vig;
   ctx.fillRect(0, 0, w, h);
 
-  // focus breath (zoom moves)
-  if (move === 'zoom' || move === 'zoomOut') {
-    const pulse = 0.15 + 0.2 * Math.sin(localT * 2);
-    ctx.strokeStyle = `rgba(255,255,255,${0.12 + pulse * 0.15})`;
-    ctx.lineWidth = 1;
-    const m = 48;
-    // corner brackets
-    const drawL = (x, y, dx, dy) => {
-      ctx.beginPath();
-      ctx.moveTo(x, y + dy * 18);
-      ctx.lineTo(x, y);
-      ctx.lineTo(x + dx * 18, y);
-      ctx.stroke();
-    };
-    drawL(m, m, 1, 1);
-    drawL(w - m, m, -1, 1);
-    drawL(m, h - m, 1, -1);
-    drawL(w - m, h - m, -1, -1);
-  }
-
-  // move label tick (subtle, fades after 1.2s)
-  const labA = Math.max(0, 1 - localT / 1.2) * 0.7;
-  if (labA > 0.02) {
+  // Tiny HUD — only first ~0.9s, low opacity
+  const labA = Math.max(0, 1 - localT / 0.9) * 0.45;
+  if (labA > 0.03) {
     ctx.globalAlpha = labA;
-    ctx.font = '600 12px Consolas, monospace';
+    ctx.font = '600 11px Consolas, monospace';
     ctx.fillStyle = '#c45c26';
-    const label = `CAM · ${String(move).toUpperCase()} · ${intensity.toFixed(1)}`;
-    ctx.fillText(label, 16, letterbox ? h * 0.1 + 14 : 22);
-    // progress pip
-    ctx.fillStyle = 'rgba(255,255,255,0.25)';
-    ctx.fillRect(16, letterbox ? h * 0.1 + 20 : 28, 80, 2);
+    const label = `CAM · ${String(move).toUpperCase()}`;
+    ctx.fillText(label, 14, letterbox ? h * 0.08 + 12 : 18);
+    ctx.fillStyle = 'rgba(255,255,255,0.2)';
+    ctx.fillRect(14, letterbox ? h * 0.08 + 16 : 22, 64, 1.5);
     ctx.fillStyle = '#c45c26';
-    ctx.fillRect(16, letterbox ? h * 0.1 + 20 : 28, 80 * u, 2);
+    ctx.fillRect(14, letterbox ? h * 0.08 + 16 : 22, 64 * u, 1.5);
   }
   ctx.restore();
 }

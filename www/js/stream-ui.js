@@ -47,21 +47,34 @@ function publishSnapshot() {
   return snap;
 }
 
+/** Director dialog already has #directorLog — never stack a second floating panel on top. */
+function useDialogLogOnly() {
+  return !!(
+    state.source === 'director' || document.getElementById('directorDialog')?.open
+  );
+}
+
 function paint() {
   const { panel, title, status, body } = panelEls();
+  const dialogOnly = useDialogLogOnly();
+
   if (panel) {
-    panel.classList.toggle('hidden', !state.active && !state.text);
-    panel.classList.toggle('streaming', state.active);
+    // One surface only: dialog log XOR floating panel
+    const showPanel = !dialogOnly && (state.active || !!state.text);
+    panel.classList.toggle('hidden', !showPanel);
+    panel.classList.toggle('streaming', showPanel && state.active);
   }
-  if (title) title.textContent = state.title || 'AI 输出';
-  if (status) status.textContent = state.status || (state.active ? '生成中…' : '');
-  if (body) {
-    body.textContent = state.text || (state.active ? '…' : '');
-    body.scrollTop = body.scrollHeight;
+  if (!dialogOnly) {
+    if (title) title.textContent = state.title || 'AI 输出';
+    if (status) status.textContent = state.status || (state.active ? '生成中…' : '');
+    if (body) {
+      body.textContent = state.text || (state.active ? '…' : '');
+      body.scrollTop = body.scrollHeight;
+    }
   }
 
   const log = document.getElementById('directorLog');
-  if (log && (state.source === 'director' || document.getElementById('directorDialog')?.open)) {
+  if (log && dialogOnly) {
     const head = state.status ? `【${state.status}】\n` : '';
     log.textContent = head + (state.text || (state.active ? '正在流式接收…' : log.textContent));
     log.scrollTop = log.scrollHeight;
@@ -82,8 +95,6 @@ export function beginAiStream(title, { source = 'ai' } = {}) {
     source,
     updatedAt: Date.now(),
   };
-  const { panel } = panelEls();
-  if (panel) panel.classList.remove('hidden');
   paint();
   publishSnapshot();
 }
@@ -118,7 +129,7 @@ export function endAiStream(finalStatus = '完成') {
   paint();
   publishSnapshot();
   const { panel } = panelEls();
-  if (panel) {
+  if (panel && !useDialogLogOnly()) {
     clearTimeout(endAiStream._hideTimer);
     endAiStream._hideTimer = setTimeout(() => {
       if (!state.active) panel.classList.add('hidden');
@@ -145,7 +156,10 @@ export function makeDirectorStreamHandlers(title, source = 'ai') {
       else if (ev.type === 'delta') appendAiStream(ev.text || '');
       else if (ev.type === 'attempt') {
         statusAiStream(`第 ${ev.attempt}/${ev.max} 次尝试${ev.repair ? '（打回修正）' : ''}`);
-        if (ev.repair) appendAiStream('\n\n—— 打回修正，重新生成 ——\n\n');
+        if (ev.repair) {
+          const brief = ev.repairBrief ? `\n${ev.repairBrief}\n` : '';
+          appendAiStream(`\n\n—— 打回修正，重新生成 ——${brief}\n`);
+        }
       }
     },
     end(ok, msg) {

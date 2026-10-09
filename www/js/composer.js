@@ -50,7 +50,7 @@ export class Composer {
       root.innerHTML = scene.props.html || '<div class="layer"></div>';
       shot.appendChild(root);
 
-      const runtime = compileSceneRuntime(scene.props.js);
+      const runtime = compileSceneRuntime(scene.props.js, { persistProps: scene.props });
       try {
         runtime.setup?.({
           root,
