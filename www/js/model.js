@@ -6,7 +6,7 @@ import {
 import { defaultChartHtml, defaultChartCss, defaultChartJs } from './chart-code.js';
 import { defaultEffectHtml, defaultEffectCss, defaultEffectJs } from './effect-code.js';
 
-/** @typedef {'scene'|'text'|'image'|'video'|'character'|'chart'|'effect'|'audio'|'narration'|'camera'|'ai'} NodeType */
+/** @typedef {'scene'|'text'|'image'|'video'|'character'|'chart'|'effect'|'audio'|'narration'|'camera'|'ai'|'comic_page'|'comic_panel'|'comic_shot'} NodeType */
 
 export const NODE_DEFS = [
   { type: 'scene', icon: 'SC', label: '分镜' },
@@ -20,6 +20,9 @@ export const NODE_DEFS = [
   { type: 'narration', icon: 'NA', label: '旁白' },
   { type: 'camera', icon: 'CM', label: '镜头' },
   { type: 'ai', icon: 'AI', label: '生成' },
+  { type: 'comic_page', icon: 'PG', label: '页面' },
+  { type: 'comic_panel', icon: 'PN', label: '分格' },
+  { type: 'comic_shot', icon: 'CS', label: '格内' },
 ];
 
 let seq = 1;
@@ -184,6 +187,99 @@ export function defaultProps(type) {
       };
     case 'ai':
       return { ...base, prompt: '', provider: 'auto', duration: 1 };
+    case 'comic_page':
+      return {
+        ...base,
+        title: '页面',
+        duration: 1,
+        format: 'single', // single | spread
+        spreadRole: 'right', // left | right
+        pageBeat: 'dialogue', // establish | dialogue | action | climax | transition
+        pageTurnHook: '',
+        readingDir: 'ltr', // ltr | rtl
+        pageWidth: 900,
+        pageHeight: 1273,
+        // 页面任务卡（服务场景 / 被格服务）
+        sceneId: '',
+        pageTask: '',
+        pageInfoChange: '',
+        pageEmotion: '',
+        rhythmType: '建立-反应-钩子',
+        mainPanelOrder: 1,
+        readingPath: 'Z',
+        linkPrevPage: '',
+        linkNextPage: '',
+        prompt: '',
+        genStatus: 'pending',
+      };
+    case 'comic_panel':
+      return {
+        ...base,
+        title: '分格',
+        duration: 1,
+        order: 1,
+        size: 'm', // s | m | l | xl
+        shape: 'rect', // rect | square | slant | round | borderless
+        gutter: 'normal', // tight | normal | wide
+        transitionIn: 'action', // action | scene | time | cutaway | parallel | memory
+        layout: { x: 0.06, y: 0.06, w: 0.88, h: 0.4 },
+        // 格设计卡（七变量 + 延伸）
+        functionVerb: '推进', // 建立|定位|推进|反应|强调|过渡|转折|爆发|收束|悬念
+        timeSpan: '几秒',
+        infoChange: '',
+        emotion: '',
+        shotSize: 'medium',
+        angle: 'eye',
+        focus: '',
+        staging: '',
+        foreground: '',
+        midground: '',
+        background: '',
+        lighting: '',
+        dialogue: '',
+        narration: '',
+        thought: '',
+        sfx: '',
+        linkPrev: '',
+        linkNext: '',
+        pageSlot: '中段', // 开场|中段|页末
+        panelRole: '辅格', // 主格|辅格|过渡格|反应格|钩子格
+        howServesPage: '',
+        brief: '',
+        genStatus: 'pending',
+      };
+    case 'comic_shot':
+      return {
+        ...base,
+        title: '格内构图',
+        duration: 1,
+        functionVerb: '推进',
+        timeSpan: '几秒',
+        infoChange: '',
+        emotion: '',
+        shotSize: 'medium', // extremeWide | wide | full | medium | close | extremeClose
+        angle: 'eye', // eye | high | low | bird | worm | dutch | pov | ots
+        focus: '',
+        staging: '',
+        foreground: '',
+        midground: '',
+        background: '',
+        lighting: '',
+        dialogue: '',
+        narration: '',
+        thought: '',
+        sfx: '',
+        linkPrev: '',
+        linkNext: '',
+        pageSlot: '中段',
+        panelRole: '辅格',
+        howServesPage: '',
+        prompt: '',
+        html: '<div class="layer"><div class="panel-art"></div><div class="balloon-slot"></div></div>',
+        css: '.layer{position:absolute;inset:0}.panel-art{position:absolute;inset:0}.balloon-slot{position:absolute;inset:0;pointer-events:none}',
+        js: `(function(){ return { setup(){}, draw({ctx,canvas,t,duration}){ var w=canvas.width,h=canvas.height; ctx.fillStyle='#f4f0e8'; ctx.fillRect(0,0,w,h); ctx.strokeStyle='#1a1a1a'; ctx.lineWidth=3; ctx.strokeRect(2,2,w-4,h-4); ctx.fillStyle='#333'; ctx.font='14px sans-serif'; ctx.fillText('comic panel',12,28);} }; })()`,
+        genStatus: 'pending',
+      };
     default:
       return base;
   }

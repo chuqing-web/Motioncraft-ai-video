@@ -30,6 +30,7 @@
         <span class="sep"></span>
         <button type="button" class="tool" data-act="template-neon">模板·夜景</button>
         <button type="button" class="tool" data-act="template-day">模板·日景</button>
+        <button type="button" class="tool" data-act="template-comic">模板·漫画</button>
         <button type="button" class="tool" data-act="template-empty">空白</button>
         <span class="sep"></span>
         <button type="button" class="tool" data-act="import-image">导入图</button>
@@ -40,9 +41,12 @@
         <label class="duration-field">秒
           <input id="totalDuration" type="number" min="1" max="600" value="12" step="1" />
         </label>
-        <button type="button" class="tool" id="btnPreview">预览</button>
-        <button type="button" class="tool primary" id="btnDirector">生成</button>
-        <button type="button" class="tool" id="btnExport">导出</button>
+        <button type="button" class="tool" id="btnPreviewVideo">预览视频</button>
+        <button type="button" class="tool" id="btnPreviewComic">预览漫画</button>
+        <button type="button" class="tool primary" id="btnDirector">生成视频</button>
+        <button type="button" class="tool primary" id="btnComicDirector">生成漫画</button>
+        <button type="button" class="tool" id="btnExport">导出视频</button>
+        <button type="button" class="tool" id="btnComicExport">导出漫画</button>
         <button type="button" class="tool" id="btnSettings">设置</button>
       </div>
     </header>
@@ -62,7 +66,8 @@
             <h2>空项目</h2>
             <p>点「生成」或顶部模板开始</p>
             <div class="empty-actions">
-              <button type="button" class="btn primary" id="btnEmptyDirector">生成</button>
+              <button type="button" class="btn primary" id="btnEmptyDirector">生成视频</button>
+              <button type="button" class="btn primary" id="btnEmptyComic">生成漫画</button>
               <button type="button" class="btn" id="btnEmptyTemplate">夜景模板</button>
             </div>
           </div>
@@ -71,6 +76,8 @@
             <div class="preview-chrome">
               <button type="button" id="btnStopPreview">关闭</button>
               <button type="button" id="btnPausePreview">暂停</button>
+              <button type="button" id="btnComicPrev" class="hidden">上一页</button>
+              <button type="button" id="btnComicNext" class="hidden">下一页</button>
               <span id="previewClock">00:00</span>
               <span id="exportProgress" class="muted"></span>
             </div>
@@ -110,6 +117,44 @@
         <button type="submit" value="run" class="btn primary" id="btnRunDirector">执行</button>
       </div>
       <pre id="directorLog" class="log"></pre>
+    </form>
+  </dialog>
+
+  <dialog id="comicDirectorDialog">
+    <form method="dialog" class="dialog-body" id="comicDirectorForm">
+      <h2>生成漫画</h2>
+      <p class="muted">四级大纲：整体→场景→页任务→格设计卡 → 再按页按格流式出 HTML/CSS/JS（与视频同厚、同修复）。</p>
+      <label>厂商
+        <select id="comicDirectorProvider"></select>
+      </label>
+      <label>提示词
+        <textarea id="comicDirectorPrompt" rows="5" placeholder="少年在雨夜巷口遇见旧识，三页对话与一页翻页悬念"></textarea>
+      </label>
+      <label>页数提示（可选）
+        <input id="comicPageHint" type="text" placeholder="例如：3 页，每页 4 格" />
+      </label>
+      <label class="row"><input type="checkbox" id="comicDirectorReplace" checked /> 替换当前图</label>
+      <label class="row"><input type="checkbox" id="comicDirectorContinue" /> 从下一格续跑（不重新大纲）</label>
+      <div class="dialog-actions">
+        <button type="submit" value="cancel" class="btn ghost">取消</button>
+        <button type="submit" value="run" class="btn primary" id="btnRunComicDirector">执行</button>
+      </div>
+      <pre id="comicDirectorLog" class="log"></pre>
+    </form>
+  </dialog>
+
+  <dialog id="comicExportDialog">
+    <form method="dialog" class="dialog-body" id="comicExportForm">
+      <h2>导出漫画</h2>
+      <p class="muted">按页面顺序导出 PNG 或 PDF。桌面端会保存到当前 .vd 工程同级目录。有失败格时默认阻止。</p>
+      <label class="row"><input type="radio" name="comicExportFmt" value="png" checked /> PNG（每页一张）</label>
+      <label class="row"><input type="radio" name="comicExportFmt" value="pdf" /> PDF（多页）</label>
+      <label class="row"><input type="checkbox" id="comicExportCurrentOnly" /> 仅当前选中页</label>
+      <div class="dialog-actions">
+        <button type="submit" value="cancel" class="btn ghost">取消</button>
+        <button type="submit" value="run" class="btn primary" id="btnRunComicExport">导出</button>
+      </div>
+      <pre id="comicExportLog" class="log"></pre>
     </form>
   </dialog>
 

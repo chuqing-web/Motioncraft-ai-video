@@ -19,6 +19,8 @@ const AI_TOOLS = new Set([
   'run_character_director',
   'run_chart_director',
   'run_effect_director',
+  'run_comic_director',
+  'run_comic_shot_director',
 ]);
 
 async function bridge(path, { method = 'GET', body } = {}) {
@@ -165,7 +167,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     },
     {
       name: 'add_node',
-      description: 'Add a node (scene|text|image|video|character|chart|effect|audio|narration|camera|ai)',
+      description:
+        'Add a node (scene|text|image|video|character|chart|effect|audio|narration|camera|ai|comic_page|comic_panel|comic_shot)',
       inputSchema: {
         type: 'object',
         properties: {
@@ -179,13 +182,13 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     },
     {
       name: 'connect',
-      description: 'Connect two nodes (sequence or attach)',
+      description: 'Connect two nodes (sequence|attach|contain|compose)',
       inputSchema: {
         type: 'object',
         properties: {
           from: { type: 'string' },
           to: { type: 'string' },
-          kind: { type: 'string', enum: ['sequence', 'attach'] },
+          kind: { type: 'string', enum: ['sequence', 'attach', 'contain', 'compose'] },
         },
         required: ['from', 'to'],
       },
@@ -270,6 +273,35 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
       },
     },
     {
+      name: 'run_comic_director',
+      description:
+        'Run comic director: outline pages/panels then stream HTML/CSS/JS panel-by-panel (page order).',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          prompt: { type: 'string' },
+          provider: { type: 'string' },
+          replace: { type: 'boolean' },
+          continueFromPending: { type: 'boolean' },
+          pageHint: { type: 'string' },
+        },
+        required: ['prompt'],
+      },
+    },
+    {
+      name: 'run_comic_shot_director',
+      description: 'AI-regenerate a single comic_shot with neighbor panel/page continuity.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          shotId: { type: 'string' },
+          prompt: { type: 'string' },
+          provider: { type: 'string' },
+        },
+        required: ['shotId'],
+      },
+    },
+    {
       name: 'preview',
       description: 'Start preview playback of the HTML-composed film',
       inputSchema: { type: 'object', properties: {} },
@@ -278,6 +310,17 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
       name: 'export_video',
       description: 'Export the composed animation via MediaRecorder (MP4 if supported else WebM)',
       inputSchema: { type: 'object', properties: {} },
+    },
+    {
+      name: 'export_comic',
+      description: 'Export comic pages as PNG sequence or PDF',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          format: { type: 'string', enum: ['png', 'pdf'] },
+          pageId: { type: 'string' },
+        },
+      },
     },
   ],
 }));
@@ -352,6 +395,9 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
         break;
       case 'export_video':
         result = await command('export_video');
+        break;
+      case 'export_comic':
+        result = await command('export_comic', args);
         break;
       default:
         throw new Error(`Unknown tool: ${name}`);

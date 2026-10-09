@@ -919,3 +919,396 @@ ${c.siblings || '（无）'}
 2) 再写【html + css + js 三者都尽量吃满上限】：丰富结构/样式 + 近中远分层多池物理 + 与光色联动的惊喜微细节；禁止硬边方块、玩具闪点、只厚 js。
 只输出特效 JSON。`;
 }
+
+/* ───────────── Comic page / panel / shot ───────────── */
+
+/** Four-level narrative stack: work → scene → page → panel. */
+export const COMIC_FOUR_LEVEL_DOCTRINE = `【四级叙事单位 — 硬性层级】
+整体（作品/章/话）→ 场景/序列 → 页/屏 → 格
+不是并列：上级给下级下任务，下级向上级交结果。
+
+【一句话原则】
+整体定方向，场景定任务，页/屏定节奏，格定镜头。
+每一格必须服务本页，每一页必须服务本场景，每一场景必须服务整体。
+
+【优先级】
+取舍：整体主题 > 场景目标 > 页面任务 > 单格效果
+回查：单格是否服务页面 → 页面是否服务场景 → 场景是否服务整体
+
+【六种层间连接】
+1) 功能：格功能→页任务→场景目标→整体主题（无关则删或改）
+2) 信息：格=信息增量；页=信息包；场景=释放点；整体=信息弧（一格一增量）
+3) 情绪：格瞬间→页重点→场景基调→整体情绪弧（无理由跳调禁止）
+4) 节奏：格是原子，页是乐句，整体节奏=页节奏序列
+5) 视觉：整体母题在页中安排、在格中呈现
+6) 连续：格接格→页接页→场景时空连续→整体因果
+
+【双线】
+信息线：不知道→知道→误解→真相→新问题
+情绪线：平静→紧张→恐惧→希望→爆发→余韵
+每一格至少改变信息或情绪之一；每一页须有明显信息或情绪变化。
+
+【口诀】
+整体是乐谱，页是乐句，格是音符。
+局部让整体，整体查局部；格服务页，页服务场景，场景服务全部。`;
+
+/** Shared executable doctrine: one panel = shot + info + time + emotion unit. */
+export const COMIC_PANEL_UNIT_DOCTRINE = `【核心定义 — 一格是什么】
+一格 ≠ 一张画。一格 = 【镜头单元 + 信息单元 + 时间单元 + 情绪单元】同时成立。
+一格必须回答：我为这一页贡献了什么？
+
+【七变量 — 每格必填】
+1) 叙事功能（功能动词，一格只做一个主功能）：
+   建立 | 定位 | 推进 | 反应 | 强调 | 过渡 | 转折 | 爆发 | 收束 | 悬念
+2) 时间跨度：一瞬间 | 几秒 | 几分钟 | 时间流逝 | 回忆
+   短→小格/动作线/残影/拟声；长→大格/留白/空镜/旁白；停顿→无字大留白
+3) 镜头距离（景别）：大远景|远景|全景|中景|近景|特写|大特写
+   禁止连续三格同景别（会平或晕）
+4) 镜头角度：平视|俯视|仰视|鸟瞰|虫视|倾斜|主观|过肩 — 服务情绪，不炫技
+5) 构图焦点：一格一个主焦点（脸/眼/手/道具/气泡/动作终点）
+   视觉重量：人脸 > 高对比 > 文字 > 运动物 > 复杂细节 > 居中上方 > 暖/亮色
+   背景必须弱于主体；什么都清楚 = 什么都不清楚
+6) 角色调度：勿永远居中/看镜头；对话留视线空间；高低差=权力；背影=悬念/疏离
+   视线：A 看右则 B 看左；视线引导下一格；勿两人都看读者
+7) 文字层：对白/旁白/内心/喊叫/拟声是构图一部分
+   气泡按阅读序；尾巴指向嘴；绝不遮脸/手/关键动作
+   页漫一框约 2–3 行×8–12 字；拟声融入画面，方向随动作
+
+【页内角色】主格 | 辅格 | 过渡格 | 反应格 | 钩子格
+一页必须有且仅有一个主格；辅格服务主格；钩子格通常在页末。
+
+【五问 — 每格必答】
+先看什么？后看什么？停多久？感受什么？翻页后得到什么？
+
+【口诀】
+先定功能，再定时间；再选景别，再选角度；
+一个焦点，三层空间；动作视线，引导读者；
+光影情绪，文字最后；前后连贯，翻页有钩。`;
+
+export const COMIC_CONTINUITY_RULES = `【连续性硬规则】
+1) 180° 轴线：A 左看右、B 右看左；跳轴须中性镜头（正面/背面/俯视/鸟瞰）过渡
+2) 视线匹配：A 看右 → 下一格 B 应看左
+3) 动作匹配：上一格动作方向，下一格必须接上
+4) 屏幕方向：左→右前进/正常；右→左返回/对抗/异常（ltr 页漫）
+5) 时间匹配：瞬间后不能无过渡直接跨十年
+6) 角色左右/服装主色/光源方向跨格一致，除非 brief 写明跳切
+7) 页末格必须服务 pageTurnHook；下页首页兑现或扭转该钩子
+8) 景别交替：避免连续三格同景别`;
+
+export const COMIC_DRAW_PIPELINE_13 = `【逐格绘制 13 步 — 写代码时按此顺序在 js 中兑现】
+1 读节拍（本格一个动作/一句关键台词/一个反应/一个信息变化）
+2 确认一节拍一格（重要→大格，次要→小格）
+3 落实格设计卡七变量（功能/时间/信息变化/情绪/景别/角度/焦点/调度/文字）
+4 缩略逻辑：谁在哪、朝哪、动作方向、气泡位（先结构后美感）
+5 框形：矩形稳定；斜格动感；无框流动；圆格回忆；破格冲击；大小控节奏
+6 透视：地平线+消失点；一点稳定/两点空间/三点压迫；广角夸张；长焦压缩
+7 角色体块：先动作线，再头/胸/骨盆/四肢（勿先描外轮廓）
+8 三层空间：前景框住/遮挡；中景主体；背景环境弱于主体
+9 光影：先定光源；明暗导焦点；剪影神秘；高光脆弱/希望；网点排线或冷暖
+10 线稿粗细：粗=前景/强调；细=背景；断线=速度/不确定
+11 对白：先定气泡区再调画面；按 readingDir 阅读序；不挡脸
+12 拟声：可出血/变形；方向随动作；大小随音强；不挡关键信息
+13 校对：阅读序、焦点、轴线、视线、动作、翻页钩子`;
+
+export const MAXIMAL_COMIC_CODE_OUTPUT = `【硬性 · 漫画格输出上限 — html / css / js 三者全部尽量吃满】
+宿主为本次生成预留了很高的 max_tokens（与视频分镜相同）。任务：在【不截断、合法 JSON、可编译 IIFE】前提下把输出预算尽量用尽。
+短小、偷懒、能跑就交 = 【失败】。要的是精细、量大、画面丰富的漫画格，并带惊喜细节。
+
+【铁律】
+- 不论本格是空镜、对话、动作还是特写——html、css、js【都必须】各自尽量长，共同逼近回复上限。
+- 禁止只厚 js；禁止 html/css 占位早停。
+- 成片像素以 canvas ctx 为主，画在【本格画布全幅】内；对话框、拟声词、网点/排线也在 js 里画。
+- js 必须兑现七变量与 13 步：透视、体块、三层空间、光影、对白/拟声皆由 draw 画出。
+- 禁止依赖外网图片/CDN；禁止 js 自启 requestAnimationFrame；setup/draw 契约与分镜相同。
+
+${MAXIMAL_CODE_OUTPUT}`;
+
+export const SYSTEM_COMIC_OUTLINE = `你是 MotionCraft 的页漫大纲导演。按四级叙事规划：整体 → 场景 → 页 → 格。只输出结构与任务卡/设计卡，【禁止】html/css/js 代码。
+
+${COMIC_FOUR_LEVEL_DOCTRINE}
+
+${COMIC_PANEL_UNIT_DOCTRINE}
+
+【工作顺序（强制）】
+1) 写 work（整体）：主题、角色弧、信息弧、情绪弧、节奏弧、视觉母题、关键转折、话末读者应知/应感/应期待
+2) 分 scenes（场景）：目标、冲突、转折、开始→结束状态、在整体中的起承转合位置
+3) 分页 pages：每页一张页面任务卡，挂 sceneId；定节奏型、主格、阅读路径、翻页钩子、与上下页关系
+4) 分格 panels：每格一张格设计卡；标 panelRole（主格|辅格|过渡格|反应格|钩子格）；一页恰好一个主格；页末优先钩子格
+
+【页漫字段】
+- readingDir: ltr|rtl；format: single|spread；spreadRole: left|right
+- 一节拍一格；景别页内交替；页群 3–5 页形成一个节拍更佳
+
+【页面任务卡（pages[] 必填）】
+sceneId, title, format, spreadRole, pageBeat,
+pageTask（本页要完成什么）,
+pageInfoChange（本页信息包）,
+pageEmotion（本页情绪重点）,
+rhythmType（起承转合|建立-反应-钩子|动作|对话|高潮|过渡）,
+mainPanelOrder（主格序号）,
+readingPath（Z|之|螺旋|瀑布|聚焦）,
+pageTurnHook, linkPrevPage, linkNextPage,
+panels[]
+
+【格设计卡（panels[] 必填）】
+order, title, size, shape, gutter, transitionIn, layout{x,y,w,h},
+functionVerb, timeSpan, infoChange, emotion, shotSize, angle, focus, staging,
+foreground, midground, background, lighting,
+dialogue, narration, thought, sfx, linkPrev, linkNext,
+pageSlot（开场|中段|页末）, panelRole（主格|辅格|过渡格|反应格|钩子格）,
+howServesPage（这一格为本页任务贡献什么）,
+brief
+
+【输出 JSON 骨架】
+{
+  "name": "作品名",
+  "readingDir": "ltr",
+  "work": {
+    "theme": "主题",
+    "characterArc": "角色从…到…",
+    "infoArc": "信息释放曲线",
+    "emotionArc": "情绪曲线",
+    "rhythmArc": "哪里慢/快/高潮/收束",
+    "visualMotifs": "视觉母题",
+    "keyTurns": "关键转折点",
+    "endKnow": "话末读者应知道",
+    "endFeel": "话末读者应感受",
+    "endExpect": "话末读者应期待"
+  },
+  "scenes": [
+    {
+      "id": "S1",
+      "title": "场景名",
+      "goal": "场景目标",
+      "conflict": "冲突",
+      "turningPoint": "转折点",
+      "stateFrom": "开始状态",
+      "stateTo": "结束状态",
+      "position": "起"
+    }
+  ],
+  "pages": [
+    {
+      "sceneId": "S1",
+      "title": "第1页",
+      "format": "single",
+      "spreadRole": "right",
+      "pageBeat": "establish",
+      "pageTask": "建立敌营并接近",
+      "pageInfoChange": "不知敌营样貌 → 看见门将开",
+      "pageEmotion": "紧张",
+      "rhythmType": "建立-反应-钩子",
+      "mainPanelOrder": 2,
+      "readingPath": "Z",
+      "pageTurnHook": "门自动打开",
+      "linkPrevPage": "（首页）",
+      "linkNextPage": "下页兑现潜入",
+      "panels": [
+        {
+          "order": 1,
+          "title": "格1",
+          "size": "l",
+          "shape": "rect",
+          "gutter": "normal",
+          "transitionIn": "scene",
+          "layout": { "x": 0.05, "y": 0.05, "w": 0.9, "h": 0.42 },
+          "functionVerb": "建立",
+          "timeSpan": "几秒",
+          "infoChange": "不知地点 → 知道敌营外墙",
+          "emotion": "戒备",
+          "shotSize": "wide",
+          "angle": "eye",
+          "focus": "外墙与灯",
+          "staging": "主角偏右，面向大门",
+          "foreground": "灌木剪影",
+          "midground": "主角",
+          "background": "敌营墙",
+          "lighting": "冷侧光",
+          "dialogue": "",
+          "narration": "",
+          "thought": "",
+          "sfx": "",
+          "linkPrev": "（无）",
+          "linkNext": "视线引向门",
+          "pageSlot": "开场",
+          "panelRole": "辅格",
+          "howServesPage": "交代空间，服务本页建立任务",
+          "brief": "…"
+        }
+      ]
+    }
+  ]
+}
+
+禁止代码。后段按页按格出码——work/scenes/页面任务卡/格设计卡必须齐全且层间目标对齐。`;
+
+export const SYSTEM_COMIC_SHOT = `你是 MotionCraft 的漫画格导演。只生成【当前这一格】的可运行 html/css/js。
+这一格是四级叙事中的最小单位：必须服务本页任务，本页服务本场景，本场景服务整体。
+
+${COMIC_FOUR_LEVEL_DOCTRINE}
+
+${COMIC_PANEL_UNIT_DOCTRINE}
+
+${COMIC_CONTINUITY_RULES}
+
+${COMIC_DRAW_PIPELINE_13}
+
+${MAXIMAL_COMIC_CODE_OUTPUT}
+
+【执行契约】
+1) 先读宿主注入的【整体→场景→本页任务卡→本格设计卡】；格功能必须支持页任务，否则按页任务修正构图/信息增量。
+2) 若本格是主格：最大视觉重量、最强情绪/信息；若是钩子格：页末留问题；若是辅格：推进并让位给主格。
+3) 按 13 步画出：透视→体块→三层→光影→线→对白→拟声；兑现视觉母题（若整体指定）。
+4) 一格一个主焦点；背景弱；对白/拟声不挡脸与关键动作。
+5) draw({ctx,canvas,t,duration,rect})；导出用 t=0；js 完整 IIFE 返回 { setup, draw }。
+6) 输出【单个】镜头 JSON（可带回 functionVerb/infoChange/emotion/panelRole/howServesPage 等）+ 必含 html、css、js。禁止多格数组。`;
+
+export function buildComicOutlineUserMessage(prompt, pageHint) {
+  return `【用户故事提示词】
+${prompt || '（无）'}
+
+【规模提示】
+${pageHint || '自行规划：建议 2–4 个场景、4–8 页、每页 2–6 格。一节拍一格。'}
+
+【大纲要求 — 四级对齐】
+1) 先写 work（主题/三角/双线/母题/话末知感期待），再写 scenes，再写 pages，再写 panels。
+2) 每页必须有 pageTask、pageInfoChange、pageEmotion、rhythmType、mainPanelOrder、readingPath、pageTurnHook、sceneId。
+3) 每格写满设计卡 + panelRole + howServesPage；一页恰好一个主格；页末优先钩子格。
+4) 检查：删掉任一格，本页是否仍成立？删掉任一页，场景是否仍成立？
+只输出大纲 JSON（work + scenes + pages），禁止代码。`;
+}
+
+function formatWorkBrief(work) {
+  if (!work || typeof work !== 'object') return '【整体】（无）';
+  return [
+    '【整体 · 作品/话】',
+    `主题：${work.theme || '（缺）'}`,
+    `角色弧：${work.characterArc || '（缺）'}`,
+    `信息弧：${work.infoArc || '（缺）'}`,
+    `情绪弧：${work.emotionArc || '（缺）'}`,
+    `节奏弧：${work.rhythmArc || '（缺）'}`,
+    `视觉母题：${work.visualMotifs || '（缺）'}`,
+    `关键转折：${work.keyTurns || '（缺）'}`,
+    `话末应知：${work.endKnow || '（缺）'}`,
+    `话末应感：${work.endFeel || '（缺）'}`,
+    `话末应期待：${work.endExpect || '（缺）'}`,
+  ].join('\n');
+}
+
+function formatSceneBrief(scene) {
+  if (!scene || typeof scene !== 'object') return '【场景】（无）';
+  return [
+    `【场景 ${scene.id || ''}】${scene.title || ''}`,
+    `目标：${scene.goal || '（缺）'}`,
+    `冲突：${scene.conflict || '（缺）'}`,
+    `转折：${scene.turningPoint || '（缺）'}`,
+    `状态：${scene.stateFrom || '?'} → ${scene.stateTo || '?'}`,
+    `整体位置：${scene.position || '（缺）'}`,
+  ].join('\n');
+}
+
+function formatPageTaskCard(page) {
+  if (!page) return '【页面任务卡】（无）';
+  return [
+    `【页面任务卡】${page.title || ''}`,
+    `所属场景：${page.sceneId || '（缺）'}`,
+    `页面任务：${page.pageTask || page.pageBeat || '（缺）'}`,
+    `信息变化：${page.pageInfoChange || '（缺）'}`,
+    `情绪重点：${page.pageEmotion || '（缺）'}`,
+    `节奏型：${page.rhythmType || '（缺）'}`,
+    `主格序号：${page.mainPanelOrder ?? '（缺）'}`,
+    `阅读路径：${page.readingPath || '（缺）'}`,
+    `翻页钩子：${page.pageTurnHook || '（缺）'}`,
+    `与上一页：${page.linkPrevPage || '（无）'}`,
+    `与下一页：${page.linkNextPage || '（无）'}`,
+    `format/左右：${page.format || 'single'} / ${page.spreadRole || 'right'}`,
+  ].join('\n');
+}
+
+function formatPanelDesignCard(p, label = '格') {
+  if (!p) return `【${label}】（无）`;
+  const lines = [
+    `【${label}】#${p.order || '?'} ${p.title || ''}`,
+    `页内角色：${p.panelRole || '（缺）'}`,
+    `为本页贡献：${p.howServesPage || '（缺）'}`,
+    `功能：${p.functionVerb || '（缺）'}`,
+    `时间：${p.timeSpan || '（缺）'}`,
+    `信息增量：${p.infoChange || '（缺）'}`,
+    `情绪：${p.emotion || '（缺）'}`,
+    `景别：${p.shotSize || '（缺）'}`,
+    `角度：${p.angle || '（缺）'}`,
+    `焦点：${p.focus || '（缺）'}`,
+    `角色调度：${p.staging || '（缺）'}`,
+    `前景：${p.foreground || '（无）'}`,
+    `中景：${p.midground || '（无）'}`,
+    `背景：${p.background || '（无）'}`,
+    `光影：${p.lighting || '（无）'}`,
+    `对白：${p.dialogue || '（无）'}`,
+    `旁白：${p.narration || '（无）'}`,
+    `内心：${p.thought || '（无）'}`,
+    `拟声：${p.sfx || '（无）'}`,
+    `框形/大小：${p.shape || 'rect'} / ${p.size || 'm'}`,
+    `与上一格：${p.linkPrev || '（无）'}`,
+    `与下一格：${p.linkNext || '（无）'}`,
+    `页漫位置：${p.pageSlot || '（无）'}`,
+    `摘要：${p.brief || '（无）'}`,
+  ];
+  return lines.join('\n');
+}
+
+export function buildComicShotUserMessage({
+  prompt,
+  continuity,
+  pageBrief,
+  panelBrief,
+  prevPanel,
+  nextPanel,
+  prevPage,
+  nextPage,
+  doneOnPage,
+  workBrief,
+  sceneBrief,
+}) {
+  const dir = continuity?.readingDir || 'ltr';
+  const readHint =
+    dir === 'rtl'
+      ? '阅读序：右→左、上→下（日漫向）。气泡与视线按此排布。'
+      : '阅读序：左→右、上→下。气泡与视线按此排布。';
+  return `【用户故事提示词】
+${prompt || continuity?.storyPrompt || '（无）'}
+
+【阅读方向】${dir}
+${readHint}
+
+${workBrief || formatWorkBrief(continuity?.work)}
+
+${sceneBrief || formatSceneBrief(continuity?.scene)}
+
+${formatPageTaskCard(pageBrief)}
+
+【上一页摘要】${prevPage || '（无）'}
+【下一页摘要】${nextPage || '（无）'}
+
+${formatPanelDesignCard(panelBrief, `本格 ${continuity?.panelIndex || '?'}/${continuity?.panelTotal || '?'}`)}
+
+${formatPanelDesignCard(prevPanel, '上一格')}
+
+${formatPanelDesignCard(nextPanel, '下一格')}
+
+【同页已完成格】
+${doneOnPage || '（尚无）'}
+
+【层间回查（勿写入 JSON，必须遵守）】
+1) 本格功能是否支持本页 pageTask？howServesPage 是否成立？
+2) 删掉本格，本页还成立吗？若仍成立且非必要辅格→应弱化或合并意图。
+3) 本页是否服务场景目标？本场景是否服务整体主题/双线？
+4) 若是主格：是否为页内最大视觉重量？若是钩子格：是否留下可翻页问题？
+5) 景别/角度/焦点/轴线/视线/动作是否与上下格连贯？
+6) 是否至少推进信息或情绪之一？是否呼应视觉母题？
+
+【执行顺序】
+1) 以整体→场景→页任务约束本格；用上下格保持连贯；
+2) 按 13 步写【html + css + js 三者都尽量吃满上限】；
+3) 画面画满本格画布；对白与拟声词画进画面。
+只输出单个镜头 JSON。`;
+}

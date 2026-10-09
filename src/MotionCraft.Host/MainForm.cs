@@ -215,7 +215,7 @@ public sealed class MainForm : Form
     }
 
     /// <summary>
-    /// Redirect browser downloads of exported video next to the open .vd file.
+    /// Redirect browser downloads of exported video / comic next to the open .vd file.
     /// </summary>
     void OnDownloadStarting(object? sender, CoreWebView2DownloadStartingEventArgs e)
     {
@@ -223,10 +223,10 @@ public sealed class MainForm : Form
         {
             var suggested = e.ResultFilePath ?? "";
             var ext = Path.GetExtension(suggested).ToLowerInvariant();
-            if (ext is not (".mp4" or ".webm" or ".mkv"))
+            if (ext is not (".mp4" or ".webm" or ".mkv" or ".png" or ".pdf"))
                 return;
 
-            var dest = ResolveExportPath(ext);
+            var dest = ResolveExportPath(ext, Path.GetFileName(suggested));
             if (string.IsNullOrEmpty(dest))
             {
                 e.Cancel = true;
@@ -251,36 +251,51 @@ public sealed class MainForm : Form
         }
     }
 
-    /// <summary>Same directory as .vd; basename matches the project file.</summary>
-    string? ResolveExportPath(string ext)
+    /// <summary>
+    /// Same directory as .vd. Uses <paramref name="suggestedFileName"/> leaf when present
+    /// (comic multi-page PNG: name-p01.png); otherwise project basename + ext (video).
+    /// </summary>
+    string? ResolveExportPath(string ext, string? suggestedFileName = null)
     {
         if (string.IsNullOrEmpty(ext)) ext = ".mp4";
         if (!ext.StartsWith('.')) ext = "." + ext;
+
+        var projectBase = Path.GetFileNameWithoutExtension(_currentProjectPath) ?? "motioncraft";
+        var leaf = Path.GetFileName(suggestedFileName ?? "");
+        if (string.IsNullOrWhiteSpace(leaf) || leaf.Equals("download", StringComparison.OrdinalIgnoreCase))
+            leaf = projectBase + ext;
+        // Keep comic page suffixes (name-p01.png) / pdf; force video to project basename.
+        if (ext is ".mp4" or ".webm" or ".mkv")
+            leaf = projectBase + ext;
 
         if (!string.IsNullOrEmpty(_currentProjectPath))
         {
             var dir = Path.GetDirectoryName(_currentProjectPath);
             if (!string.IsNullOrEmpty(dir) && Directory.Exists(dir))
-            {
-                var baseName = Path.GetFileNameWithoutExtension(_currentProjectPath);
-                return Path.Combine(dir, baseName + ext);
-            }
+                return Path.Combine(dir, leaf);
         }
 
+        var isComic = ext is ".png" or ".pdf";
         using var dlg = new SaveFileDialog
         {
-            Title = "导出视频",
-            Filter = ext.Equals(".mp4", StringComparison.OrdinalIgnoreCase)
-                ? "MP4 视频 (*.mp4)|*.mp4|所有文件 (*.*)|*.*"
-                : "视频 (*.mp4;*.webm)|*.mp4;*.webm|所有文件 (*.*)|*.*",
+            Title = isComic ? "导出漫画" : "导出视频",
+            Filter = ExportFilterForExt(ext),
             DefaultExt = ext.TrimStart('.'),
             AddExtension = true,
-            FileName = (Path.GetFileNameWithoutExtension(_currentProjectPath) ?? "motioncraft") + ext,
+            FileName = leaf,
             InitialDirectory = ProjectVault.ProjectDir(),
             OverwritePrompt = true,
         };
         return dlg.ShowDialog(this) == DialogResult.OK ? dlg.FileName : null;
     }
+
+    static string ExportFilterForExt(string ext) => ext.ToLowerInvariant() switch
+    {
+        ".png" => "PNG 图片 (*.png)|*.png|所有文件 (*.*)|*.*",
+        ".pdf" => "PDF (*.pdf)|*.pdf|所有文件 (*.*)|*.*",
+        ".mp4" => "MP4 视频 (*.mp4)|*.mp4|所有文件 (*.*)|*.*",
+        _ => "视频 (*.mp4;*.webm)|*.mp4;*.webm|所有文件 (*.*)|*.*",
+    };
 
     void SaveExportVideo(JsonElement root)
     {

@@ -12,6 +12,9 @@ const TYPE_TAG = {
   narration: 'NAR',
   camera: 'CAM',
   ai: 'AI',
+  comic_page: 'PG',
+  comic_panel: 'PN',
+  comic_shot: 'CS',
 };
 
 /** Must match `.graph-node { width }` / `--node-w` in app.css */
@@ -167,7 +170,9 @@ export class GraphCanvas {
       const el = document.createElement('div');
       const gen = node.props?.genStatus;
       const pendingShell =
-        node.type === 'scene' && !String(node.props?.js || '').trim() && gen !== 'generating';
+        (node.type === 'scene' || node.type === 'comic_shot') &&
+        !String(node.props?.js || '').trim() &&
+        gen !== 'generating';
       const genClass =
         gen === 'generating' ? ' generating' : gen === 'pending' || pendingShell ? ' pending' : '';
       el.className =
@@ -240,7 +245,17 @@ export class GraphCanvas {
       return;
     }
     let edge;
-    if (fromNode.type === 'scene' && toNode.type === 'scene') {
+    if (fromNode.type === 'comic_page' && toNode.type === 'comic_page') {
+      edge = createEdge(this.link.from, toId, 'sequence');
+    } else if (fromNode.type === 'comic_page' && toNode.type === 'comic_panel') {
+      edge = createEdge(this.link.from, toId, 'contain');
+    } else if (fromNode.type === 'comic_panel' && toNode.type === 'comic_page') {
+      edge = createEdge(toId, this.link.from, 'contain');
+    } else if (fromNode.type === 'comic_panel' && toNode.type === 'comic_shot') {
+      edge = createEdge(this.link.from, toId, 'compose');
+    } else if (fromNode.type === 'comic_shot' && toNode.type === 'comic_panel') {
+      edge = createEdge(toId, this.link.from, 'compose');
+    } else if (fromNode.type === 'scene' && toNode.type === 'scene') {
       edge = createEdge(this.link.from, toId, 'sequence');
     } else if (toNode.type === 'scene') {
       edge = createEdge(this.link.from, toId, 'attach');
@@ -333,6 +348,8 @@ export class GraphCanvas {
       path.setAttribute('d', d);
       path.setAttribute('marker-end', edge.id === this.selectedEdgeId ? 'url(#arrowActive)' : 'url(#arrow)');
       if (edge.kind === 'attach') path.classList.add('attach');
+      if (edge.kind === 'contain') path.classList.add('contain');
+      if (edge.kind === 'compose') path.classList.add('compose');
       if (edge.id === this.selectedEdgeId) path.classList.add('selected');
 
       g.appendChild(hit);

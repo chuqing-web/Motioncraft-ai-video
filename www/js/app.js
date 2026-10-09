@@ -18,6 +18,9 @@ import {
   runChartDirector,
   runEffectDirector,
 } from './director.js';
+import { runComicDirector, runComicShotDirector } from './comic-director.js';
+import { paintComicPage, listComicPageIds } from './comic-composer.js';
+import { exportComicPngs, exportComicPdf } from './comic-export.js';
 import { toast, confirmAsync, formatTime } from './ui.js';
 import { TEMPLATES } from './templates.js';
 import { pickLocalFile } from './overlays.js';
@@ -35,6 +38,9 @@ const state = {
   selectedId: null,
   selectedEdgeId: null,
   previewTime: 0,
+  previewMode: null, // 'video' | 'comic' | null
+  comicPageIds: [],
+  comicPreviewIndex: 0,
   paused: false,
   seeded: false,
   sessionOpen: false,
@@ -53,10 +59,16 @@ const els = {
   previewClock: document.getElementById('previewClock'),
   totalDuration: document.getElementById('totalDuration'),
   directorDialog: document.getElementById('directorDialog'),
+  comicDirectorDialog: document.getElementById('comicDirectorDialog'),
+  comicExportDialog: document.getElementById('comicExportDialog'),
   settingsDialog: document.getElementById('settingsDialog'),
   directorProvider: document.getElementById('directorProvider'),
   directorPrompt: document.getElementById('directorPrompt'),
   directorLog: document.getElementById('directorLog'),
+  comicDirectorProvider: document.getElementById('comicDirectorProvider'),
+  comicDirectorPrompt: document.getElementById('comicDirectorPrompt'),
+  comicDirectorLog: document.getElementById('comicDirectorLog'),
+  comicExportLog: document.getElementById('comicExportLog'),
   emptyCanvas: document.getElementById('emptyCanvas'),
   exportProgress: document.getElementById('exportProgress'),
   assetsDialog: document.getElementById('assetsDialog'),
@@ -160,6 +172,8 @@ function refresh() {
     onGenerateCharacter: (id, prompt) => generateCharacterForNode(id, prompt),
     onGenerateChart: (id, prompt) => generateChartForNode(id, prompt),
     onGenerateEffect: (id, prompt) => generateEffectForNode(id, prompt),
+    onGenerateComicShot: (id, prompt) => generateComicShotForNode(id, prompt),
+    onPreviewComicPage: (pageId) => previewComicPage(pageId),
   });
   els.totalDuration.value = state.project.settings.duration || 12;
   if (els.emptyCanvas) {
@@ -178,6 +192,10 @@ function livePaintProject(project, info = {}) {
     info.phase === 'outline' ||
     info.phase === 'shot' ||
     info.phase === 'shot-start' ||
+    info.phase === 'panel-start' ||
+    info.phase === 'panel-done' ||
+    info.phase === 'page-done' ||
+    info.phase === 'complete' ||
     info.phase === 'done' ||
     info.phase === 'start' ||
     info.phase === 'error';
@@ -331,6 +349,9 @@ document.addEventListener('click', async (e) => {
     } else if (act === 'template-day') {
       if (!requireSession()) return;
       await applyTemplate('day');
+    } else if (act === 'template-comic') {
+      if (!requireSession()) return;
+      await applyTemplate('comic');
     } else if (act === 'template-empty') {
       if (!requireSession()) return;
       await applyTemplate('empty');
@@ -409,15 +430,22 @@ function bind(id, fn) {
     try { fn(e); } catch (err) { toast(String(err.message || err), { type: 'err' }); }
   });
 }
-bind('btnPreview', () => { if (requireSession()) startPreview(false); });
+bind('btnPreviewVideo', () => { if (requireSession()) startPreview(false); });
+bind('btnPreviewComic', () => { if (requireSession()) startComicPreview(); });
 bind('btnExport', () => { if (requireSession()) startPreview(true); });
 bind('btnStopPreview', () => stopPreview());
 bind('btnPausePreview', () => {
+  if (state.previewMode === 'comic') return;
   state.paused = !state.paused;
   document.getElementById('btnPausePreview').textContent = state.paused ? '继续' : '暂停';
 });
+bind('btnComicPrev', () => showComicPreviewAt(state.comicPreviewIndex - 1));
+bind('btnComicNext', () => showComicPreviewAt(state.comicPreviewIndex + 1));
 bind('btnDirector', () => { if (requireSession()) openDirector(); });
 bind('btnEmptyDirector', () => { if (requireSession()) openDirector(); });
+bind('btnComicDirector', () => { if (requireSession()) openComicDirector(); });
+bind('btnEmptyComic', () => { if (requireSession()) openComicDirector(); });
+bind('btnComicExport', () => { if (requireSession()) openComicExport(); });
 bind('btnEmptyTemplate', () => applyTemplate('neon'));
 bind('btnSettings', () => openSettings());
 
@@ -428,6 +456,133 @@ function openDirector(prompt, provider) {
   if (provider) els.directorProvider.value = provider;
   els.directorLog.textContent = '';
   els.directorDialog.showModal();
+}
+
+function fillComicProviderSelect() {
+  const sel = els.comicDirectorProvider;
+  if (!sel) return;
+  sel.innerHTML = `<option value="auto">自动（当前 ${state.settings.activeProvider || 'openai'}）</option>`;
+  for (const [id, cfg] of Object.entries(state.settings.providers || {})) {
+    const opt = document.createElement('option');
+    opt.value = id;
+    opt.textContent = cfg.label || id;
+    sel.appendChild(opt);
+  }
+}
+
+function openComicDirector(prompt, provider) {
+  if (!requireSession()) return;
+  fillComicProviderSelect();
+  if (prompt && els.comicDirectorPrompt) els.comicDirectorPrompt.value = prompt;
+  if (provider && els.comicDirectorProvider) els.comicDirectorProvider.value = provider;
+  if (els.comicDirectorLog) els.comicDirectorLog.textContent = '';
+  els.comicDirectorDialog?.showModal();
+}
+
+function openComicExport() {
+  if (!requireSession()) return;
+  if (els.comicExportLog) els.comicExportLog.textContent = '';
+  els.comicExportDialog?.showModal();
+}
+
+function setPreviewChrome(mode) {
+  const pauseBtn = document.getElementById('btnPausePreview');
+  const prevBtn = document.getElementById('btnComicPrev');
+  const nextBtn = document.getElementById('btnComicNext');
+  const comic = mode === 'comic';
+  els.previewStage?.classList.toggle('comic-mode', comic);
+  if (pauseBtn) {
+    pauseBtn.classList.toggle('hidden', comic);
+    if (!comic) pauseBtn.textContent = state.paused ? '继续' : '暂停';
+  }
+  prevBtn?.classList.toggle('hidden', !comic);
+  nextBtn?.classList.toggle('hidden', !comic);
+}
+
+function showComicPreviewAt(index, { toastOk = false } = {}) {
+  const ids = state.comicPageIds;
+  if (!ids.length) {
+    toast('没有漫画页面可预览', { type: 'err' });
+    return;
+  }
+  const i = Math.max(0, Math.min(ids.length - 1, index));
+  state.comicPreviewIndex = i;
+  const pageId = ids[i];
+  try {
+    const { canvas, failed, page } = paintComicPage(state.project, pageId);
+    els.stageRoot.querySelectorAll('.comic-page-preview').forEach((n) => n.remove());
+    const wrap = document.createElement('div');
+    wrap.className = 'comic-page-preview';
+    wrap.appendChild(canvas);
+    els.stageRoot.appendChild(wrap);
+    els.previewClock.textContent = `第 ${i + 1} / ${ids.length} 页 · ${page?.props?.title || ''}`;
+    const prevBtn = document.getElementById('btnComicPrev');
+    const nextBtn = document.getElementById('btnComicNext');
+    if (prevBtn) prevBtn.disabled = i <= 0;
+    if (nextBtn) nextBtn.disabled = i >= ids.length - 1;
+    if (failed.length) toast(`本页有失败格: ${failed.join(', ')}`, { type: 'info' });
+    else if (toastOk) toast('漫画预览', { type: 'ok', ms: 1400 });
+  } catch (err) {
+    toast('预览失败: ' + (err.message || err), { type: 'err' });
+  }
+}
+
+function startComicPreview(startPageId) {
+  if (!requireSession()) return;
+  const ids = listComicPageIds(state.project);
+  if (!ids.length) {
+    toast('请先添加漫画页面，或加载漫画模板 / 生成漫画', { type: 'err' });
+    return;
+  }
+  composer.stop();
+  state.paused = false;
+  state.previewMode = 'comic';
+  state.comicPageIds = ids;
+  const startIdx = startPageId ? Math.max(0, ids.indexOf(startPageId)) : 0;
+  els.previewStage.classList.remove('hidden');
+  setPreviewChrome('comic');
+  els.exportProgress.textContent = '';
+  showComicPreviewAt(startIdx < 0 ? 0 : startIdx, { toastOk: true });
+}
+
+function previewComicPage(pageId) {
+  startComicPreview(pageId);
+}
+
+async function generateComicShotForNode(shotId, prompt) {
+  const shot = state.project.nodes.find((n) => n.id === shotId && n.type === 'comic_shot');
+  if (!shot) {
+    toast('未找到格内节点', { type: 'err' });
+    return;
+  }
+  const stream = makeDirectorStreamHandlers('漫画格生成', 'comic_shot');
+  toast('正在流式生成这一格…', { type: 'info', ms: 2500 });
+  try {
+    const { meta } = await runComicShotDirector({
+      project: state.project,
+      shotId,
+      prompt,
+      settings: state.settings,
+      provider: singleNodeProvider(),
+      onStream: stream.onStream,
+      onProject: livePaintProject,
+    });
+    state.selectedId = shotId;
+    refresh();
+    const pos = meta.continuity
+      ? `第 ${meta.continuity.panelIndex}/${meta.continuity.panelTotal} 格`
+      : '此格';
+    const continuityNote =
+      meta.continuity?.hasPrev || meta.continuity?.hasNext ? ' · 已注入上下格上下文' : '';
+    const msg = meta.repairs
+      ? `${pos} 完成（打回修正 ${meta.repairs} 次）${continuityNote}`
+      : `${pos} 完成${continuityNote}`;
+    stream.end(true, msg);
+    toast(msg, { type: 'ok', ms: 4000 });
+  } catch (err) {
+    stream.end(false, formatGenError(err));
+    toast('漫画格生成失败: ' + formatGenError(err), { type: 'err' });
+  }
 }
 
 function singleNodeProvider() {
@@ -633,6 +788,113 @@ document.getElementById('directorForm').addEventListener('submit', async (e) => 
   }
 });
 
+document.getElementById('comicDirectorForm')?.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  if (e.submitter?.value === 'cancel') {
+    els.comicDirectorDialog?.close();
+    return;
+  }
+  const continueFromPending = document.getElementById('comicDirectorContinue')?.checked;
+  const prompt = (els.comicDirectorPrompt?.value || '').trim();
+  if (!prompt && !continueFromPending) {
+    if (els.comicDirectorLog) els.comicDirectorLog.textContent = '请输入提示词';
+    return;
+  }
+  const replace = document.getElementById('comicDirectorReplace')?.checked && !continueFromPending;
+  if (replace && state.project.nodes.length && !(await confirmAsync('将替换当前节点图，继续？'))) return;
+
+  const btn = document.getElementById('btnRunComicDirector');
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = '生成中…';
+  }
+  const stream = makeDirectorStreamHandlers('漫画生成', 'comic');
+  if (els.comicDirectorLog) els.comicDirectorLog.textContent = '正在流式调用模型…';
+  try {
+    const { project, meta } = await runComicDirector({
+      prompt: prompt || state.project.nodes.find((n) => n.type === 'ai')?.props?.prompt || '',
+      settings: state.settings,
+      provider: els.comicDirectorProvider?.value || 'auto',
+      replace: !!replace,
+      continueFromPending: !!continueFromPending,
+      currentProject: state.project,
+      pageHint: document.getElementById('comicPageHint')?.value || '',
+      onStream: stream.onStream,
+      onProject: livePaintProject,
+    });
+    state.project = project;
+    state.selectedId = null;
+    refresh();
+    const msg = meta.repairs
+      ? `完成 · ${meta.pageCount || 0} 页 / ${meta.panelCount || 0} 格（打回 ${meta.repairs} 次）`
+      : `完成 · ${meta.pageCount || 0} 页 / ${meta.panelCount || 0} 格`;
+    stream.end(true, msg);
+    if (els.comicDirectorLog) els.comicDirectorLog.textContent = msg;
+    toast(msg, { type: 'ok' });
+  } catch (err) {
+    stream.end(false, err.message);
+    if (els.comicDirectorLog) els.comicDirectorLog.textContent = '失败: ' + err.message;
+    toast('漫画生成失败: ' + err.message, { type: 'err' });
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = '执行';
+    }
+  }
+});
+
+document.getElementById('comicExportForm')?.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  if (e.submitter?.value === 'cancel') {
+    els.comicExportDialog?.close();
+    return;
+  }
+  const fmt =
+    document.querySelector('input[name="comicExportFmt"]:checked')?.value || 'png';
+  const onlyCurrent = document.getElementById('comicExportCurrentOnly')?.checked;
+  let onlyPageId = null;
+  if (onlyCurrent) {
+    const sel = state.project.nodes.find((n) => n.id === state.selectedId);
+    if (sel?.type === 'comic_page') onlyPageId = sel.id;
+    else {
+      if (els.comicExportLog) els.comicExportLog.textContent = '请先选中一个页面节点';
+      return;
+    }
+  }
+  const base = exportBaseName().replace(/\.(vd|json)$/i, '') || 'comic';
+  const btn = document.getElementById('btnRunComicExport');
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = '导出中…';
+  }
+  const besideVd = !!state.sessionPath && hasHost();
+  try {
+    if (fmt === 'pdf') {
+      await exportComicPdf(state.project, { basename: base, onlyPageId });
+      const msg = besideVd
+        ? `PDF 将保存到 .vd 同目录：${base}.pdf`
+        : 'PDF 已触发下载';
+      if (els.comicExportLog) els.comicExportLog.textContent = msg;
+      toast(besideVd ? `漫画 PDF → 与 .vd 同目录` : '漫画 PDF 已导出', { type: 'ok', ms: 4500 });
+    } else {
+      const blobs = await exportComicPngs(state.project, { basename: base, onlyPageId });
+      const msg = besideVd
+        ? `已导出 ${blobs.length} 张 PNG → .vd 同目录（${base}-p01.png …）`
+        : `已导出 ${blobs.length} 张 PNG`;
+      if (els.comicExportLog) els.comicExportLog.textContent = msg;
+      toast(msg, { type: 'ok', ms: 4500 });
+    }
+  } catch (err) {
+    if (els.comicExportLog) els.comicExportLog.textContent = '失败: ' + err.message;
+    toast('漫画导出失败: ' + err.message, { type: 'err' });
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = '导出';
+    }
+  }
+});
+
 function fillProviderSelect() {
   const sel = els.directorProvider;
   sel.innerHTML = `<option value="auto">自动（当前 ${state.settings.activeProvider || 'openai'}）</option>`;
@@ -788,14 +1050,22 @@ document.getElementById('settingsForm').addEventListener('submit', (e) => {
 function stopPreview() {
   composer.stop();
   state.paused = false;
+  state.previewMode = null;
+  state.comicPageIds = [];
+  state.comicPreviewIndex = 0;
+  els.stageRoot?.querySelectorAll('.comic-page-preview').forEach((n) => n.remove());
   els.previewStage.classList.add('hidden');
   els.exportProgress.textContent = '';
+  setPreviewChrome(null);
   document.getElementById('btnPausePreview').textContent = '暂停';
 }
 
 function seekPreview(t) {
   state.previewTime = t;
+  state.previewMode = 'video';
+  els.stageRoot?.querySelectorAll('.comic-page-preview').forEach((n) => n.remove());
   els.previewStage.classList.remove('hidden');
+  setPreviewChrome('video');
   if (!composer.shots?.length) composer.build(state.project, recordCanvas);
   composer.paintAt(t);
   els.previewClock.textContent = formatTime(t);
@@ -811,9 +1081,13 @@ async function startPreview(doExport) {
     toast('请先添加分镜或运行 AI 导演', { type: 'err' });
     return;
   }
+  els.stageRoot?.querySelectorAll('.comic-page-preview').forEach((n) => n.remove());
   els.previewStage.classList.remove('hidden');
   composer.stop();
   state.paused = false;
+  state.previewMode = 'video';
+  state.comicPageIds = [];
+  setPreviewChrome('video');
   document.getElementById('btnPausePreview').textContent = '暂停';
   const { duration } = composer.build(state.project, recordCanvas);
 
@@ -929,13 +1203,32 @@ window.addEventListener('keydown', async (e) => {
     graph.cancelLink();
   }
   if (e.code === 'Space' && !typing && !e.repeat) {
-    if (!els.previewStage.classList.contains('hidden') && composer.playing) {
+    if (!els.previewStage.classList.contains('hidden') && state.previewMode === 'comic') {
+      e.preventDefault();
+      showComicPreviewAt(state.comicPreviewIndex + 1);
+    } else if (!els.previewStage.classList.contains('hidden') && composer.playing) {
       e.preventDefault();
       state.paused = !state.paused;
       document.getElementById('btnPausePreview').textContent = state.paused ? '继续' : '暂停';
     } else if (els.previewStage.classList.contains('hidden')) {
       e.preventDefault();
-      startPreview(false);
+      const hasComic = listComicPageIds(state.project).length > 0;
+      const hasScene = state.project.nodes.some((n) => n.type === 'scene');
+      if (hasComic && !hasScene) startComicPreview();
+      else startPreview(false);
+    }
+  }
+  if (
+    !typing &&
+    state.previewMode === 'comic' &&
+    !els.previewStage.classList.contains('hidden')
+  ) {
+    if (e.key === 'ArrowLeft') {
+      e.preventDefault();
+      showComicPreviewAt(state.comicPreviewIndex - 1);
+    } else if (e.key === 'ArrowRight') {
+      e.preventDefault();
+      showComicPreviewAt(state.comicPreviewIndex + 1);
     }
   }
   if (e.ctrlKey && e.key.toLowerCase() === 's') {
@@ -1204,6 +1497,59 @@ window.MotionCraftAPI = {
       case 'export_video':
         await startPreview(true);
         return { ok: true };
+      case 'run_comic_director': {
+        const stream = makeDirectorStreamHandlers('MCP · 漫画生成', 'mcp');
+        try {
+          const { project, meta } = await runComicDirector({
+            prompt: cmd.prompt || '',
+            settings: state.settings,
+            provider: cmd.provider || 'auto',
+            replace: cmd.replace !== false && !cmd.continueFromPending,
+            continueFromPending: !!cmd.continueFromPending,
+            currentProject: state.project,
+            pageHint: cmd.pageHint || '',
+            onStream: stream.onStream,
+            onProject: livePaintProject,
+          });
+          state.project = project;
+          refresh();
+          stream.end(true, `完成 · ${meta.panelCount || 0} 格`);
+          return { ok: true, meta, stream: getAiStreamSnapshot() };
+        } catch (err) {
+          stream.end(false, err.message);
+          throw err;
+        }
+      }
+      case 'run_comic_shot_director': {
+        if (!cmd.shotId) return { ok: false, error: 'shotId required' };
+        const stream = makeDirectorStreamHandlers('MCP · 漫画格生成', 'mcp');
+        try {
+          const { meta } = await runComicShotDirector({
+            project: state.project,
+            shotId: cmd.shotId,
+            prompt: cmd.prompt || '',
+            settings: state.settings,
+            provider: cmd.provider || 'auto',
+            onStream: stream.onStream,
+            onProject: livePaintProject,
+          });
+          refresh();
+          stream.end(true, '漫画格完成');
+          return { ok: true, meta, stream: getAiStreamSnapshot() };
+        } catch (err) {
+          stream.end(false, err.message);
+          throw err;
+        }
+      }
+      case 'export_comic': {
+        const base = exportBaseName().replace(/\.(vd|json)$/i, '') || 'comic';
+        if (cmd.format === 'pdf') {
+          await exportComicPdf(state.project, { basename: base, onlyPageId: cmd.pageId || null });
+        } else {
+          await exportComicPngs(state.project, { basename: base, onlyPageId: cmd.pageId || null });
+        }
+        return { ok: true };
+      }
       case 'get_project':
         return { ok: true, project: state.project };
       default:

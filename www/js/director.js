@@ -1413,3 +1413,11 @@ function stripFence(s) {
     .replace(/\s*```$/, '')
     .trim();
 }
+
+/** Shared by comic-director and other modules that need the same repair loop. */
+export {
+  requestModelJson,
+  validateSingleShotPayload,
+  markGenerating,
+  notifyProject,
+};

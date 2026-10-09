@@ -1,6 +1,16 @@
 import { createEmptyProject, createNode, createEdge, touch } from './model.js';
 import { neonSceneFar, neonSceneStreet, neonSceneTitle } from './neon-scenes.js';
 import { daySceneWide, daySceneDetail, daySceneTitle } from './day-scenes.js';
+import {
+  comicPanelSkyline,
+  comicPanelCloseLook,
+  comicPanelHands,
+  comicPanelHook,
+  comicPanelChase,
+  comicPanelCatch,
+  comicPanelTitle,
+} from './comic-scenes.js';
+import { defaultComicPanelLayouts } from './layout.js';
 
 /**
  * Hand-authored templates.
@@ -25,6 +35,12 @@ export const TEMPLATES = [
     name: '日光产品片',
     desc: '日景 · 全节点演示',
     build: () => buildDayProduct(),
+  },
+  {
+    id: 'comic',
+    name: '晨光追蝶',
+    desc: '页漫 · 页面/分格/格内演示',
+    build: () => buildComicMorning(),
   },
   {
     id: 'data',
@@ -490,6 +506,187 @@ function buildDayProduct() {
   ai.props.prompt =
     '日光产品片：晨光广场、窗边木桌特写、体积光与尘埃、写实行人与落版；叠层含镜头/旁白/特效/人物/图表';
   ai.props.title = '生成';
+  project.nodes.push(ai);
+
+  return touch(project);
+}
+
+/** Page comic demo — page → panel → shot with hand-painted panels */
+function buildComicMorning() {
+  const project = createEmptyProject('晨光追蝶');
+  project.settings.renderMode = 'comic-code';
+  project.settings.comicReadingDir = 'ltr';
+  project.settings.duration = 1;
+
+  const prompt =
+    '页漫短篇：晨光街道散步，窗边喝咖啡，窗外飞过一只蝴蝶，追出去轻轻接住，落版 MotionCraft';
+
+  const page1Panels = [
+    {
+      title: '晨街',
+      order: 1,
+      size: 'l',
+      shotSize: 'wide',
+      angle: 'eye',
+      focus: '街道与行人剪影',
+      dialogue: '晨光里的街道……',
+      brief: '远景晨街，暖日光，行人',
+      layout: { x: 0.05, y: 0.04, w: 0.9, h: 0.28 },
+      js: comicPanelSkyline(),
+    },
+    {
+      title: '侧脸',
+      order: 2,
+      size: 'm',
+      shotSize: 'close',
+      angle: 'eye',
+      focus: '角色侧脸与暖光',
+      dialogue: '今天的风好暖。',
+      brief: '中近景侧脸，窗光',
+      layout: { x: 0.05, y: 0.34, w: 0.44, h: 0.3 },
+      js: comicPanelCloseLook(),
+    },
+    {
+      title: '咖啡',
+      order: 3,
+      size: 'm',
+      shotSize: 'close',
+      angle: 'high',
+      focus: '双手与咖啡杯',
+      dialogue: '先喝一口。',
+      brief: '手部特写，木桌与蒸汽',
+      layout: { x: 0.51, y: 0.34, w: 0.44, h: 0.3 },
+      js: comicPanelHands(),
+    },
+    {
+      title: '窗外',
+      order: 4,
+      size: 'l',
+      shotSize: 'medium',
+      angle: 'eye',
+      focus: '窗外飞过的蝴蝶',
+      dialogue: '……那是？',
+      sfx: '',
+      brief: '窗框与蝴蝶剪影，翻页钩子',
+      layout: { x: 0.05, y: 0.66, w: 0.9, h: 0.3 },
+      js: comicPanelHook(),
+    },
+  ];
+
+  const page2Panels = [
+    {
+      title: '追蝶',
+      order: 1,
+      size: 'xl',
+      shotSize: 'wide',
+      angle: 'low',
+      focus: '奔跑追蝴蝶',
+      dialogue: '等等！',
+      sfx: '啪嗒',
+      brief: '公园大格，奔跑与蝶迹',
+      layout: defaultComicPanelLayouts(3)[0],
+      js: comicPanelChase(),
+    },
+    {
+      title: '接住',
+      order: 2,
+      size: 'm',
+      shotSize: 'extremeClose',
+      angle: 'high',
+      focus: '掌心停落的蝴蝶',
+      dialogue: '轻轻的……',
+      brief: '双手特写，蝶停掌心',
+      layout: defaultComicPanelLayouts(3)[1],
+      js: comicPanelCatch(),
+    },
+    {
+      title: '落版',
+      order: 3,
+      size: 'm',
+      shotSize: 'medium',
+      angle: 'eye',
+      focus: 'MotionCraft 标题',
+      dialogue: '今天也是好故事。',
+      brief: '暖色落版与挥手',
+      layout: defaultComicPanelLayouts(3)[2],
+      js: comicPanelTitle(),
+    },
+  ];
+
+  const pagesSpec = [
+    {
+      title: '第 1 页 · 晨光',
+      pageBeat: 'establish',
+      pageTurnHook: '窗外飞过一只蝴蝶——那是什么？',
+      spreadRole: 'right',
+      x: 80,
+      y: 100,
+      panels: page1Panels,
+    },
+    {
+      title: '第 2 页 · 追蝶',
+      pageBeat: 'climax',
+      pageTurnHook: '',
+      spreadRole: 'left',
+      x: 820,
+      y: 100,
+      panels: page2Panels,
+    },
+  ];
+
+  let prevPage = null;
+  for (const ps of pagesSpec) {
+    const page = place(createNode('comic_page'), ps.x, ps.y);
+    page.props.title = ps.title;
+    page.props.format = 'single';
+    page.props.spreadRole = ps.spreadRole;
+    page.props.pageBeat = ps.pageBeat;
+    page.props.pageTurnHook = ps.pageTurnHook;
+    page.props.readingDir = 'ltr';
+    page.props.pageWidth = 900;
+    page.props.pageHeight = 1273;
+    page.props.prompt = prompt;
+    page.props.genStatus = 'done';
+    project.nodes.push(page);
+    if (prevPage) project.edges.push(createEdge(prevPage.id, page.id, 'sequence'));
+    prevPage = page;
+
+    ps.panels.forEach((br, i) => {
+      const panel = place(createNode('comic_panel'), ps.x + 220, ps.y + i * 110);
+      panel.props.title = br.title;
+      panel.props.order = br.order;
+      panel.props.size = br.size || 'm';
+      panel.props.shape = 'rect';
+      panel.props.gutter = 'normal';
+      panel.props.transitionIn = i === 0 ? 'scene' : 'action';
+      panel.props.layout = br.layout;
+      panel.props.brief = br.brief || '';
+      panel.props.genStatus = 'done';
+      project.nodes.push(panel);
+      project.edges.push(createEdge(page.id, panel.id, 'contain'));
+
+      const shot = place(createNode('comic_shot'), ps.x + 440, ps.y + i * 110);
+      shot.props.title = br.title;
+      shot.props.shotSize = br.shotSize || 'medium';
+      shot.props.angle = br.angle || 'eye';
+      shot.props.focus = br.focus || '';
+      shot.props.dialogue = br.dialogue || '';
+      shot.props.sfx = br.sfx || '';
+      shot.props.prompt = prompt;
+      shot.props.html =
+        '<div class="layer"><div class="panel-art"></div><div class="balloon-slot"></div></div>';
+      shot.props.css =
+        '.layer{position:absolute;inset:0}.panel-art{position:absolute;inset:0}.balloon-slot{position:absolute;inset:0;pointer-events:none}';
+      shot.props.js = br.js;
+      shot.props.genStatus = 'done';
+      project.nodes.push(shot);
+      project.edges.push(createEdge(panel.id, shot.id, 'compose'));
+    });
+  }
+
+  const ai = place(createNode('ai'), 80, 40);
+  ai.props.prompt = prompt;
+  ai.props.title = '漫画';
   project.nodes.push(ai);
 
   return touch(project);
