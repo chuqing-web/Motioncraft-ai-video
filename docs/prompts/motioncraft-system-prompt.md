@@ -34,7 +34,7 @@
 
 1. `sanitizeJsSource` 去掉 markdown 围栏  
 2. 试编译 `return (${js})`，要求返回对象且含 `draw` 函数  
-3. **试跑** `setup` + 若干时刻的 `draw`（离屏 canvas），捕获运行时错误（`is not defined` / `is not a function` / `appendChild` 非法参数等）  
+3. **试跑** `setup` + 若干时刻的 `draw`（离屏 canvas），捕获运行时错误（`is not defined` / `clearRect is not a function` / 渐变 non-finite / `undefined.x` / `appendChild` 等）  
 4. **本地自动修**：缺 `function seed`、错误 `seed=数字`、`appendChild(字符串)` 等会先尝试注入/软化，再试编译  
 5. **JSON/JS/试跑失败** → 按真实错误类型打回（勿误标成「语法/括号」），要求整段重写完整 JSON  
 6. 打回耗尽仍失败 → 抛错给 UI（不静默换成假代码）  

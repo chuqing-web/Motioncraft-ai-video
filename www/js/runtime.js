@@ -587,10 +587,31 @@ export function diagnoseJsFailure(jsSource, compileError = '') {
     const name = m?.[1] || '某符号';
     type = `${name} 不是函数`;
     where = `draw/setup 试运行报错：${err}`;
+    if (/clearRect|fillRect|beginPath|fillText|createLinearGradient|createRadialGradient|drawImage|save|restore/i.test(err)) {
+      hint =
+        'ctx 不是 CanvasRenderingContext2D。draw/setup 开头必须写：var ctx=api.ctx, canvas=api.canvas, t=api.t, duration=api.duration||4;' +
+        '禁止 var ctx=api 或把 ctx 赋成普通对象。整段重写并保证 ctx.clearRect 可调用。';
+    } else if (name === 'seed') {
+      hint =
+        'seed 必须是函数：function seed(n){ var x=Math.sin(n*999)*10000; return x-Math.floor(x); }。删除 var seed=数字 这类绑定。';
+    } else {
+      hint = `「${name}」被当成函数调用但不是函数；改为 function ${name}(...){...} 定义，或删掉错误调用。ease/lerp/seed 均须在 IIFE 内自建。`;
+    }
+  } else if (/non-finite|is not a finite|NaN|Infinity/i.test(err) || /createLinearGradient|createRadialGradient/i.test(err)) {
+    type = 'Canvas 参数非有限数 (NaN/Infinity)';
+    where = `draw/setup 试运行报错：${err}`;
     hint =
-      name === 'seed'
-        ? 'seed 必须是函数：function seed(n){ var x=Math.sin(n*999)*10000; return x-Math.floor(x); }。删除 var seed=数字 这类绑定。'
-        : `「${name}」被当成函数调用但不是函数；改为 function ${name}(...){...} 定义，或删掉错误调用。ease/lerp/seed 均须在 IIFE 内自建。`;
+      'createLinearGradient/fillRect 等坐标必须是有限数字。常见原因：除以 0、未初始化变量、duration 为 0、数组项 undefined。' +
+      'draw 开头：var W=canvas.width||1280,H=canvas.height||720,dur=Math.max(0.01,duration||4),u=t/dur;' +
+      '所有渐变/几何参数用 Number 且可用 isFinite 守卫；粒子池在 setup 建好再 draw。整段重写。';
+  } else if (/Cannot read propert(?:y|ies) of (undefined|null)/i.test(err)) {
+    const prop = err.match(/reading ['"]([^'"]+)['"]/i);
+    const p = prop?.[1] || 'x';
+    type = `访问了 undefined/null 的 .${p}`;
+    where = `draw/setup 试运行报错：${err}`;
+    hint =
+      `某处对象为 undefined 却读了 .${p}（常见：粒子/窗光数组未在 setup 初始化、rect 未取用、循环越界）。` +
+      'setup 里预建全部数组/对象；draw 里先 var rect=api.rect||{x:0,y:0,w:W,h:H}；访问前判空。整段重写。';
   } else if (/appendChild|parameter 1 is not of type 'Node'/i.test(err)) {
     type = 'DOM appendChild 非法参数';
     where = `setup/draw 试运行报错：${err}`;
@@ -601,8 +622,9 @@ export function diagnoseJsFailure(jsSource, compileError = '') {
     type = 'setup/draw 运行时错误';
     where = `试运行报错：${err}`;
     hint =
-      '这不是括号语法问题。setup/draw 执行失败：优先只在 canvas 的 ctx 上绘制；' +
-      'seed/ease/lerp 必须是 function；禁止 appendChild 非 Node。请整段重写可跑通的 js。';
+      '这不是括号语法问题。setup/draw 执行失败：' +
+      '① var ctx=api.ctx（勿把 api 当 ctx）；② 坐标/渐变参数必须 isFinite；③ 数组/对象先在 setup 初始化再读 .x；' +
+      '④ seed/ease 必须是 function。请整段重写可跑通的 js。';
   } else if (/\b(import|export)\b/.test(src)) {
     type = '禁止 import/export';
     where = 'js 顶层模块语法';
@@ -703,7 +725,8 @@ function dryRunSceneRuntime(runtime, duration = 4) {
   const rect = { x: 120, y: 100, w: 280, h: 520 };
   const props = { html: '<div class="layer"></div>', css: '' };
   const motion = 'idle';
-  const base = { ctx, canvas, duration, root, rect, motion, props };
+  const dur = Math.max(0.01, Number(duration) || 4);
+  const base = { ctx, canvas, duration: dur, root, rect, motion, props };
 
   try {
     if (typeof runtime.setup === 'function') {
@@ -713,7 +736,7 @@ function dryRunSceneRuntime(runtime, duration = 4) {
     return { ok: false, error: `setup() ${err?.message || err}` };
   }
 
-  const times = [0, Math.min(0.3, duration * 0.12), duration * 0.5, Math.max(0, duration - 0.05)];
+  const times = [0, Math.min(0.3, dur * 0.12), dur * 0.5, Math.max(0, dur - 0.05)];
   for (const t of times) {
     try {
       runtime.draw({ ...base, t });

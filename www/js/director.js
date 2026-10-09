@@ -14,6 +14,7 @@ import {
   buildEffectUserMessage,
 } from './quality-prompt.js';
 import { synthesizeCharacterCode } from './character-code.js';
+import { sceneJsOwnsCharacters } from './overlays.js';
 import { synthesizeChartCode } from './chart-code.js';
 import { synthesizeEffectCode } from './effect-code.js';
 import { sanitizeJsSource, validateSceneJs, diagnoseJsFailure } from './runtime.js';
@@ -808,15 +809,22 @@ function diagnoseJsonFailure(content, err) {
   if (/Unexpected end|end of (JSON|data)/i.test(msg)) {
     type = 'JSON 被截断';
     where = '输出末尾（字符串或对象未闭合）';
-    hint = '完整闭合所有 {} [] ""，js 字段勿半截结束。';
+    hint =
+      '完整闭合所有 {} [] ""；js/html/css 勿半截结束。厚代码时优先保证 JSON 合法收尾，再往里加细节；不要 markdown 围栏。';
   } else if (/Unexpected token/i.test(msg) && /```/.test(text)) {
     type = '含 markdown 围栏或杂讯';
     where = '输出前后的 ``` 或解释文字';
     hint = '不要用 ```json 包裹；不要在 JSON 外写说明。';
-  } else if (/Bad control character|Unexpected string|Expected/i.test(msg)) {
+  } else if (/Bad control character|Unexpected string|Expected|Invalid|escape/i.test(msg)) {
     type = '字符串转义错误';
-    where = pos >= 0 ? `约字符位置 ${pos}（常见于 js 字段未转义的 "）` : '某字符串字段';
-    hint = 'js/html/css 内每个 " 必须写成 \\"；换行用 \\n。';
+    where = pos >= 0 ? `约字符位置 ${pos}（常见于 js/html/css 未转义的 " 或裸换行）` : '某字符串字段';
+    hint =
+      'js/html/css 内每个 " 必须写成 \\"；换行用 \\n；反斜杠写成 \\\\；禁止未转义的真实换行破坏 JSON。整段重发合法 JSON。';
+  } else if (/Unexpected token/i.test(msg)) {
+    type = 'JSON 语法错误';
+    where = pos >= 0 ? `约字符位置 ${pos}` : '整段输出';
+    hint =
+      '只输出一个 JSON 对象；检查逗号、引号、括号；js 字段内的双引号全部 \\"；不要尾随逗号后接 }。';
   }
 
   const slice =
@@ -873,6 +881,9 @@ function seed(n){ var x=Math.sin(n*999)*10000; return x-Math.floor(x); }
 粒子/雨/grain 用 seed(i) / seed(x*12.9+y*78.2)，禁止再出现字面量 Math.random。
 若错误含 seed is not a function：删除 var/const seed=数字，改为上面的 function seed(n){...}。
 若错误含 appendChild / not of type 'Node'：不要 root.appendChild(字符串)；setup 留空或只 appendChild(document.createElement(...))；画面只画 ctx。
+若错误含 clearRect is not a function：draw 开头必须 var ctx=api.ctx, canvas=api.canvas；禁止 var ctx=api。
+若错误含 non-finite / createLinearGradient：所有渐变与几何参数必须有限数；var W=canvas.width||1280,H=canvas.height||720,dur=Math.max(0.01,duration||4)；禁止除零与未初始化变量入参。
+若错误含 Cannot read properties of undefined：setup 预建数组/对象；draw 访问 .x 前判空；rect 用 api.rect||{x:0,y:0,w:W,h:H}。
 注意：setup()/draw() 试跑失败属于【运行时】问题，不是 IIFE 括号语法问题——按引擎报错整段重写，勿只改收尾括号。
 ${snippet ? '\n问题代码摘录：\n' + snippet + '\n' : ''}
 请输出修正后的【完整】JSON（含全新可编译的 js），不要解释。`;
@@ -1079,32 +1090,33 @@ ${codeLeak.join('\n')}
     }
   }
 
-  const targetTotal =
-    hints.promptSpecifiesTotal || hints.promptSpecifiesPerShot
-      ? hints.perShot && hints.promptSpecifiesCount
-        ? hints.perShot * hints.shotCount
-        : hints.totalDuration
-      : hints.totalDuration;
-  if (targetTotal && sumDur > 0) {
-    const drift = Math.abs(sumDur - targetTotal) / targetTotal;
-    // Only bounce on large drift when prompt/host gave a clear total
-    if (drift > 0.28 && (hints.promptSpecifiesTotal || hints.promptSpecifiesPerShot || hints.hostDuration)) {
+  // Only enforce a total when the prompt itself named one (or per-shot × count).
+  // Never bounce against the UI duration bar — that is a fallback hint, not a cap.
+  let promptTargetTotal = null;
+  if (hints.promptSpecifiesPerShot && hints.promptSpecifiesCount && hints.perShot && hints.shotCount) {
+    promptTargetTotal = hints.perShot * hints.shotCount;
+  } else if (hints.promptSpecifiesTotal && hints.totalDuration) {
+    promptTargetTotal = hints.totalDuration;
+  }
+  if (promptTargetTotal && sumDur > 0) {
+    const drift = Math.abs(sumDur - promptTargetTotal) / promptTargetTotal;
+    if (drift > 0.28) {
       return {
         ok: false,
-        error: `分镜时长合计 ${sumDur.toFixed(1)}s 与目标约 ${targetTotal}s 偏差过大`,
-        repairBrief: `错误类型：时长合计不符\n错在哪里：合计 ${sumDur.toFixed(1)}s，目标约 ${targetTotal}s`,
+        error: `分镜时长合计 ${sumDur.toFixed(1)}s 与提示词目标约 ${promptTargetTotal}s 偏差过大`,
+        repairBrief: `错误类型：时长合计不符提示词\n错在哪里：合计 ${sumDur.toFixed(1)}s，提示词目标约 ${promptTargetTotal}s`,
         repairMessage: `【打回修正，重新生成 — 大纲】
-错误类型：分镜时长必须按用户提示词（或提示词未写明时的宿主总时长）分配
-错在哪里：各镜 duration 之和=${sumDur.toFixed(1)}，目标约 ${targetTotal}
-怎么改：按提示词重分配每镜 duration，使合计接近目标；镜数亦遵从提示词，勿固定 3~6。`,
+错误类型：分镜时长合计必须遵从用户提示词（不要去对齐界面上的默认秒数）
+错在哪里：各镜 duration 之和=${sumDur.toFixed(1)}，提示词目标约 ${promptTargetTotal}
+怎么改：按提示词重分配每镜 duration，使合计接近该目标。界面总时长栏不是硬限制。`,
       };
     }
   }
 
   const outlineDuration =
-    Number(raw.duration) ||
     (sumDur > 0 ? sumDur : null) ||
-    hints.totalDuration ||
+    Number(raw.duration) ||
+    (hints.promptSpecifiesTotal ? hints.totalDuration : null) ||
     duration;
 
   return {
@@ -1141,15 +1153,22 @@ function normalizeAttachments(list) {
   return out;
 }
 
+function filterAttachmentsPreferSceneJs(list, scene) {
+  const atts = normalizeAttachments(list);
+  if (!sceneJsOwnsCharacters(scene)) return atts;
+  return atts.filter((a) => a.type !== 'character');
+}
+
 /**
  * Attach helper nodes for cinematic quality. If model omitted attachments and
- * fillIfEmpty, invent a sensible minimal set (camera + optional FX/VO/character).
+ * fillIfEmpty, invent a sensible minimal set (camera + optional FX/VO — not character).
  */
 function wireSceneAttachments(project, scene, attachments, originX, originY, opts = {}) {
   let list = normalizeAttachments(attachments);
   if (!list.length && opts.fillIfEmpty) {
     list = suggestDefaultAttachments(scene);
   }
+  list = filterAttachmentsPreferSceneJs(list, scene);
   if (!list.length) return 0;
 
   let count = 0;
@@ -1209,23 +1228,8 @@ function suggestDefaultAttachments(scene) {
     });
   }
 
-  const charBrief = String(p.character || '').trim();
-  if (charBrief && charBrief !== '无') {
-    const preferLeft = /左|left/i.test(charBrief + brief);
-    atts.push({
-      type: 'character',
-      title: '人物',
-      motion: /跑|run/i.test(charBrief) ? 'run' : /挥|wave/i.test(charBrief) ? 'wave' : 'walk',
-      look: /伞|umbrella/i.test(charBrief) ? 'umbrella' : 'default',
-      appearance: charBrief,
-      prompt: charBrief,
-      umbrella: /伞|umbrella/i.test(charBrief),
-      // Feet near street bottom, rule-of-thirds staging
-      layout: preferLeft
-        ? { x: 0.14, y: 0.36, w: 0.26, h: 0.54 }
-        : { x: 0.54, y: 0.36, w: 0.26, h: 0.54 },
-    });
-  }
+  // Do NOT auto-add character — scene js owns people (avoids duplicate CH overlay).
+  // User may still attach a character node manually when needed.
 
   const caption = String(p.text || '').trim();
   if (caption) {

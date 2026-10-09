@@ -270,8 +270,28 @@ export function paintCameraChrome(ctx, canvas, cam, localT, duration) {
   ctx.restore();
 }
 
+/**
+ * Scene js owns on-canvas people. When true, skip CH overlay paint / attach.
+ */
+export function sceneJsOwnsCharacters(scene) {
+  const p = scene?.props || {};
+  const js = String(p.js || '');
+  if (!js.includes('draw') || js.length < 80) return false;
+  const char = String(p.character || '').trim();
+  if (char && char !== '无' && char.toLowerCase() !== 'none') return true;
+  if (
+    /draw(Person|Character|Figure|Human|Actor|Crowd)|headX|pelvis|walkPhase|limb|肩|头|腿|人物|行人/i.test(
+      js,
+    )
+  ) {
+    return true;
+  }
+  return false;
+}
+
 export function paintOverlays(ctx, canvas, attached, localT, duration, project, scene) {
   if (!attached?.length) return;
+  const skipCharacterOverlay = sceneJsOwnsCharacters(scene);
   for (const n of attached) {
     try {
       switch (n.type) {
@@ -295,6 +315,8 @@ export function paintOverlays(ctx, canvas, attached, localT, duration, project, 
           paintVideo(ctx, canvas, resolveAssetUrl(project, n.props), n.props, localT);
           break;
         case 'character':
+          // Prefer scene js figure — avoid duplicate synthesizer CH
+          if (skipCharacterOverlay) break;
           paintCodeOverlay(ctx, canvas, localT, duration, n.props, n, 'character', 'walk');
           break;
         case 'chart':

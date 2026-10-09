@@ -191,20 +191,22 @@ export const ATTACHMENTS_RULE = `【增强节点 attachments — 由你判断，
 - camera：几乎每镜都加。move=pan|zoom|zoomOut|tilt|handheld|static；intensity 建议 0.7~1.0（忌 >1.4 狂晃）；letterbox 建议 true；运镜要有 overscan，禁止露出画布黑边
 - effect：有雨/尘/雾/霓虹/火花/光晕时必加。motion/effect=particles|glow|fade|rain|spark；layout 必须全屏 {x:0,y:0,w:1,h:1}；禁止半透明实心方块/面板；appearance 与 prompt 写清
 - narration：叙事向成片建议加 VO 旁白（文案须【不同于】scene.text 字幕，避免重复；可更诗意/内心独白）
-- character：需要角色表演时加。必须有设计感 + 表情 + 动作（非示意小人/立牌），并写 layout 标定人–景关系（脚落地面、偏三分法）；appearance 写清情绪与主动作
 - text：短标题/地名条（不同于字幕与旁白），animation=fade|rise|slide|type
 - chart：仅数据叙事需要时
 - audio：可加氛围床占位（title/volume/fadeIn/fadeOut；无真实音频文件时仅作时间轴标注）
+
+【人物 — 默认由场景 js 绘制，不要滥加 character 附件】
+- 有人时：在【场景 js】里画出主体人物（表情+动作+人景关系）；character 字段写清外观与表演。
+- 【默认不要】在 attachments 里再加 type:character —— 否则会叠出多余 CH 小人，与场景 js 重复。
+- 仅当明确需要「可单独替换的叠层演员」、且场景 js【故意不画】该主体时，才加 character 附件（须 appearance/layout/motion）。
+- 禁止：场景 js 已画完整人物 + attachments 再挂一套 character。
 
 attachments 数组元素示例：
 { "type":"camera", "title":"手持跟", "move":"handheld", "intensity":0.9, "letterbox":true }
 { "type":"effect", "title":"细雨", "motion":"rain", "effect":"rain", "appearance":"冷色斜雨近大远小", "prompt":"雨夜细雨", "layout":{"x":0,"y":0,"w":1,"h":1} }
 { "type":"narration", "speaker":"VO", "text":"与字幕不同的旁白句", "animation":"type" }
-{ "type":"character", "title":"撑伞人", "motion":"walk", "look":"umbrella", "appearance":"深色风衣宽肩+湿发贴额；眉微蹙凝视前方；右手撑伞步伐沉；冷霓虹rim", "coatColor":"#1a2838", "layout":{"x":0.55,"y":0.36,"w":0.26,"h":0.54} }
 { "type":"text", "text":"雨夜·街道", "animation":"rise" }
 
-character 节点：appearance/layout 必填（含表情+主动作）；建议带 expression 与 motion；js 可省略（宿主合成），若写 js 必须遵守人物设计规范+JS_CONTRACT（须画出五官情绪与动作相位）。
-若已挂 character 附件：场景 js 勿再画第二套完整小人（可画远处虚影人群，主体交给附件）。
 不要为凑数重复无意义节点；image/video 不要输出（需用户素材）。`;
 
 /**
@@ -365,9 +367,24 @@ function seed(n){ var x=Math.sin(n*999)*10000; return x-Math.floor(x); }
 - seed is not a function / xxx is not a function → 缺 function 定义或绑错类型
 - yh is not defined 等 → 变量未声明
 - appendChild … not of type 'Node' → 禁止把字符串塞进 appendChild；setup 可空，只画 ctx
+- ctx.clearRect is not a function → 必须 var ctx=api.ctx，禁止 var ctx=api
+- createLinearGradient … non-finite → 渐变/几何参数含 NaN/Infinity（除零、未初始化）；先取 W/H/dur 再算
+- Cannot read properties of undefined (reading 'x') → 数组/对象未在 setup 初始化或未判空
+
+【Canvas 运行时安全 — 强制，避免上述打回】
+draw/setup 开头固定写法（推荐）：
+var ctx=api.ctx, canvas=api.canvas, t=api.t||0, duration=api.duration;
+var W=(canvas&&canvas.width)||1280, H=(canvas&&canvas.height)||720;
+var dur=Math.max(0.01, Number(duration)||4), u=Math.min(1,Math.max(0,t/dur));
+var rect=api.rect||{x:0,y:0,w:W,h:H};
+- 禁止把 api 本身当成 ctx；禁止未定义就读 foo.x / particles[i].x
+- 所有 createLinearGradient/createRadialGradient/fillRect/arc 参数必须是有限数；除法前保证分母≠0
+- 粒子/窗光/建筑等数组【只在 setup 创建并填好】，draw 只遍历；禁止 draw 里假定闭包变量已存在却未赋值
+- 可用：function fin(n,d){ n=Number(n); return isFinite(n)?n:(d||0); }
+
 所有用到的标识符必须在 IIFE 内 var/function 定义；禁止依赖未传入的全局名。
 
-建议：setup/draw 用 function 关键字；IIFE 内【大量】helper（drawSky/drawCity/drawRain/drawLife/post…）；内部可用 var；优先少用模板字符串以降低 JSON 转义风险。
+建议：setup/draw 用 function 关键字；IIFE 内【大量】helper（drawSky/drawCity/drawRain/drawLife/post…）；内部可用 var；优先少用模板字符串以降低 JSON 转义风险（厚代码时尤其注意 \\" 与 \\n，勿截断 JSON）。
 【硬性】遵守 MAXIMAL_CODE_OUTPUT：html、css、js 三者都尽量吃满上限，用真实结构/样式/绘制堆细节与惊喜；禁止极简交卷或只厚 js。
 缓动示例（写在 IIFE 内）：function easeIn(u){ return u*u; } function easeOut(u){ return 1-(1-u)*(1-u); } function lerp(a,b,u){ return a+(b-a)*u; }`;
 
@@ -387,12 +404,14 @@ export const SELF_CHECK = `【自检 — 输出前默默过一遍，不满足先
 - 无自启 rAF？动画只由 t（秒）驱动？
 - 【致命】js 全文是否出现 Math.random？有则必须改成 function seed(n){...} 再交卷；粒子/雨/grain/手持全部用 seed(…)？
 - 【致命】seed 是否为 function（不是数字变量）？有无 appendChild(字符串)？
+- 【致命】draw 是否 var ctx=api.ctx（不是 api）？渐变/坐标是否可能 NaN？粒子数组是否 setup 已建？有无 foo.x 读 undefined？
+- 【致命】JSON 是否完整可 parse？js/html/css 内 " 是否都写成 \\"？有无截断半截字符串？
 - 【致命】draw 里每个变量是否都已声明？有无拼写错误（如 yh vs y/h）？宿主会试跑 setup/draw，运行时错误即打回整段重写。
 - 每镜 style/scene/character/environment/camera/lighting/effects/post 均写满可执行短句（非空夸）？
 - 每镜：三层景深 + 视差/前景 + 软/接触阴影 + 大气透视 + vignette + grain？
 - 有人则：非示意小人、衣型/发型、【表情可读】、【复合肢体/手势】、脚落地面、人景三分、rim 吃场景光、呼吸/次级动作？
 - 有气氛则特效多层物理？相机非完美线性？统一电影调色？
-- character 附件含合理 layout（脚近画面底）？场景未重复画第二套主体小人？
+- 有人是否主要在场景 js 画出？若挂了 character 附件，场景 js 是否故意没画同一主体（避免双人/多余 CH）？
 - 不依赖外网？1280×720 可流畅？静帧像海报、播放像短片？若像 loading/示意→整镜重做。`;
 
 /**
@@ -434,7 +453,7 @@ export const SYSTEM_OUTLINE = `你是 MotionCraft 的分镜大纲导演。只规
 【硬性规则】
 1. 【镜数与时长服从提示词，禁止硬编码套模板】用户写了几镜就几镜、写了每镜几秒就几秒、写了总时长就把各镜 duration 之和对齐；未写镜数时按叙事需要自定（1 镜也可以，不必凑 3~6）。画布按 1280×720 构思。
 2. 【禁止】任何 html、css、js 字段或代码片段。
-3. 每镜写满视觉字段（可执行短句）；attachments 建议含 camera，并按需 effect/narration/character。
+3. 每镜写满视觉字段（可执行短句）；attachments 建议含 camera，并按需 effect/narration（人物交给后续场景 js，大纲阶段勿滥加 character）。
 4. 全片色调/天气/角色外观连续；每镜同等高质量，禁止空洞过渡镜；每镜 brief 须写出「复杂场景要点 + 运动/事件节拍」（像实拍分镜，不是小动画说明）。
 5. 【思考】先完成 DEEP_THINKING 五步 + PROMPT_FIDELITY + CINEMATIC_VIDEO；全部关键词在 scenes 间有归属；每镜字段点名本镜要兑现的词与动感系统。
 6. 文案中文；只输出 JSON（思考过程不输出）。
@@ -477,12 +496,14 @@ function formatShotPlanBlock(duration, planHints) {
   if (h.promptSpecifiesPerShot) {
     lines.push(`- 提示词已指定每镜时长：每个 scene.duration ≈ ${h.perShot} 秒。`);
   }
-  if (h.promptSpecifiesTotal || h.totalDuration) {
+  if (h.promptSpecifiesTotal) {
+    lines.push(`- 提示词已指定总时长：各镜 duration 之和应约 ${h.totalDuration} 秒。`);
+  } else {
     lines.push(
-      `- 目标合计时长：约 ${h.totalDuration} 秒（各镜 duration 之和应对齐；提示词写了总时长则以其为准）。`,
+      '- 提示词未写总时长：不要去对齐宿主栏秒数；按提示词的镜数/每镜时长或叙事节奏排，顶层 duration = 各镜之和。',
     );
   }
-  lines.push('- JSON 顶层 duration = 各镜 duration 之和（或提示词总时长）。');
+  lines.push('- JSON 顶层 duration = 各镜 duration 之和。');
   return lines.join('\n');
 }
 
@@ -587,9 +608,9 @@ setup 预计算复杂结构（粒子池、建筑/窗光、雨层、路径）；d
 4. 若有下一镜：本镜结尾为下镜留视觉钩子（朝向、道具、光向）。
 5. duration 沿用本镜 brief / 大纲给定秒数（那是按用户提示词排的），不要擅自改成 4 秒模板。
 6. js 必须是 IIFE + {setup,draw}；【严禁 Math.random()】，噪声/粒子一律 seed(n)；画布 1280×720；不依赖外网；文案中文；JSON 转义正确。
-7. 先完成 DEEP_THINKING 五步 + 提示词逐词阅读 + CINEMATIC_VIDEO，再写满视觉字段，再写【厚实、多层、有节拍】的代码；并输出本镜 attachments（建议含 camera，按需特效/旁白/人物）。
+7. 先完成 DEEP_THINKING 五步 + 提示词逐词阅读 + CINEMATIC_VIDEO，再写满视觉字段，再写【厚实、多层、有节拍】的代码；并输出本镜 attachments（建议含 camera，按需特效/旁白；【默认不加 character】——人物画在场景 js）。
 8. 本镜 brief 与成片创意中归属本镜的每一个词都必须在画面中有深度体现；禁止漏词、偷换、模板顶替、敷衍了事、假动感小动画。
-9. js 须达到真实视频感：≥4 类同时运动、2~4 个时间节拍、子函数分层绘制、setup 预计算；细节写满。
+9. js 须达到真实视频感：≥4 类同时运动、2~4 个时间节拍、子函数分层绘制、setup 预计算；有人则在【本镜 js】画出主体；细节写满。
 10. 【硬性】遵守 MAXIMAL_CODE_OUTPUT：不论本镜简单或复杂，html、css、js【三者都必须】尽量长并逼近输出上限；禁止只厚 js 或简镜少写；画面丰富、含惊喜细节。
 
 ${DEEP_THINKING}
@@ -648,14 +669,14 @@ ${c.attachedBrief || '（无）'}
 
 【深度思考 + 提示词 — 强制（思考勿写入输出）】
 - 先完成意图→拆解→构图→时间→挑剔；拒绝空话与万能模板。
-- 通读「本镜意图」+「成片/主题」+ 当前镜 brief + 挂载节点：实体/修饰/动态/情绪/程度词全部入画；人物/特效已挂载时场景勿再画第二套主体。
+- 通读「本镜意图」+「成片/主题」+ 当前镜 brief + 挂载节点：实体/修饰/动态/情绪/程度词全部入画；人物默认画在场景 js（勿再挂 character 造成双人）；特效已挂载时场景勿再画第二套硬边特效面板。
 - 每个关键词 ≥2 个可执行决策；程度词拉开差别；否定词真的排除。
 
 【质量优先 · 真实视频感 — 强制】
 本镜必须像实拍短片镜头：三层景深+视差、主光+多点光+接触阴影、材质噪声、有意图运镜、vignette+grain+统一调色；
 ≥4 类同时运动、时间轴有事件节拍；有人则复合表演；有气氛则多层物理特效。
 html、css、js【三者】都必须尽量吃满输出上限（与 brief 难易无关）：多层 DOM + 丰富 CSS + 大量 js 子函数/多池/惊喜；禁止玩具小动画、禁止任一字段占位早停。
-请为 attachments 积极建议节点（至少 camera；按需 effect/narration/character/text）。
+请为 attachments 积极建议节点（至少 camera；按需 effect/narration/text）。人物默认画在场景 js 里，【不要】再挂 character，除非场景 js 故意不画该主体。
 
 【执行顺序 — 强制】
 1) 深度思考 + 逐词阅读 + 规划动感系统与节拍与惊喜点，写满视觉字段（点名关键词，禁空夸）；
