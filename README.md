@@ -2,10 +2,39 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-**Prompt → editable Canvas code → real short film.**  
-A Windows desktop workbench that turns natural language into cinematic clips by having an LLM write **runnable per-shot code** — then you preview, scrub, revise, and export MP4/WebM locally.
+**Prompt → editable Canvas code → short film *or* print-ready anime pages.**
 
-> Not a black-box “text-to-video” API. The model is a **procedural director**; MotionCraft is the studio, timeline, and recorder.
+MotionCraft is a **Windows desktop AI creation workbench**: describe a story in natural language, let an LLM write runnable `html` / `css` / `js` for every shot or comic panel, then preview, revise, and export locally.  
+It is not a black-box “text-to-video / text-to-image” website. The model acts as a **procedural director**; MotionCraft is the **studio, timeline / page compositor, and exporter** — transparent, editable, under your control.
+
+---
+
+## What the product is
+
+| | |
+|--|--|
+| **One line** | Replace sealed pixels with **code that paints** — ship **AI short films** and **AI anime page-comics** |
+| **Form factor** | WinForms + WebView2 desktop app (`.exe`); projects are encrypted `.vd` vaults |
+| **Generation** | Your own LLM API (Doubao / DeepSeek / OpenAI / Ollama…); local Canvas 2D rendering |
+| **Two product lines** | ① Timeline video (MP4/WebM) ② Static page comic (PNG/PDF) |
+| **Core asset** | Readable per-shot / per-panel code — not a one-shot cloud blob |
+
+### Problems it solves
+
+| Pain | MotionCraft approach |
+|------|----------------------|
+| Can’t fix one second of AI video | Nodes + code + single-shot / single-panel regenerate with continuity |
+| Outputs are opaque | `html/css/js` is the asset — edit by hand, regenerate, treat as source |
+| High GPU / vendor lock-in | Normal Windows laptop; you pick the model and the bill |
+| Comics need layout control, not just images | AI chooses panel count / size / position; stream code; export full pages |
+| Want Cursor / agents to drive generation | Local MCP bridge — same director pipeline as the UI |
+
+### Who it’s for
+
+- Creators who need **controllable storyboard shorts** or courseware-style clips  
+- Story / anime-oriented authors who need **page comics + export**  
+- Developers and studios using **agents** (Cursor, Doubao, 小龙虾, …)  
+- Teams who care about **local privacy** and project files (encrypted `.vd`)  
 
 ---
 
@@ -13,118 +42,121 @@ A Windows desktop workbench that turns natural language into cinematic clips by 
 
 ![AI generation process](picture/AI%20generation%20process.png)
 
-*AI Director streaming outline + per-shot code*
+*AI Director streaming outline + per-shot / per-panel code*
 
 ![Video effect](picture/video%20effect.png)
 
-*Preview stage: camera, atmospheric FX, timeline*
+*Video preview: camera, atmospheric FX, timeline*
+
+![AI-generated anime examples](picture/AI-generated%20anime%20examples.png)
+
+*Anime page-comic: code-drawn static panels and page rhythm → PNG / PDF*
 
 ---
 
-## Why MotionCraft wins
+## Product principles
 
-### 1. Transparent & controllable — not opaque pixels
-
-| Traditional AI video | **MotionCraft** |
-|----------------------|-----------------|
-| Cloud model returns a sealed clip | Every shot is `html` / `css` / `js` you can read, edit, regenerate |
-| Hard to fix one second mid-timeline | Time `t` drives every frame; scrub and iterate |
-| Locked in a vendor website | Local `.exe` + node graph + MCP remote control |
-| One-shot “hope it looks good” | Outline → per-shot code → validate → bounce → attachments |
-| Vendor chooses the model | **Bring your own API** — swap providers anytime |
-
-You stay in control of story, code, timing, and which model bills the tokens.
-
-### 2. Low hardware bar — laptop-friendly
-
-MotionCraft does **not** run a local diffusion/video model and does **not** need a datacenter GPU for generation.
-
-| What you need | What you don’t need |
-|---------------|---------------------|
-| Ordinary Windows 10/11 PC | High-end NVIDIA for local T2V |
-| WebView2 (usually already on Win11) | Multi‑GB video checkpoints |
-| Any LLM API (or local Ollama-compatible) | Always-online proprietary video SaaS |
-| Modest CPU/RAM for Canvas 2D + UI | 24 GB+ VRAM “AI workstation” |
-
-**Generation** = call your chosen LLM (cloud or local OpenAI-compatible).  
-**Playback / export** = Canvas 2D + `MediaRecorder` on the machine you already own.
-
-That means lower cost, fewer drivers, and workable setups on school/office laptops.
-
-### 3. Any API you already pay for
-
-Configure under **Tools → API / Model Settings**. OpenAI-compatible endpoints work out of the box:
-
-| Slot | Typical use |
-|------|-------------|
-| **OpenAI** | Official `api.openai.com` |
-| **Anthropic** | Claude (note browser CORS on some setups) |
-| **Doubao (豆包)** | Volcengine Ark OpenAI-compatible |
-| **DeepSeek** | OpenAI-compatible |
-| **Custom** | Ollama, vLLM, OneAPI, OpenRouter, company gateways, self-hosted Hermes-compatible proxies — anything with `/v1/chat/completions` |
-
-Keys stay in `%AppData%\MotionCraft\settings.json` as **DPAPI-protected** `apiKeyProtected` — not inside `.vd` projects, never returned as plaintext over MCP.
-
-Switch default vendor anytime; Director can also **auto-fallback** to any configured key so a single-node generate doesn’t fail with `NO_KEY` because the key sits on another slot.
-
-### 4. Agents & IDEs can drive the whole studio
-
-With MotionCraft running, any **MCP client** can outline, generate scenes/characters/effects, mutate the graph, preview, and export — same quality pipeline as the UI:
-
-- **Cursor**  
-- **Doubao (豆包)** agent / plugin MCP  
-- **Hermes Agent** (or other agent stacks that speak MCP / HTTP bridge)  
-- **小龙虾** and similar desktop agents that can host MCP servers  
-- Custom scripts hitting the local bridge (`127.0.0.1`)
-
-You choose: click in the UI, or let an agent run `run_director` / `run_effect_director` / `export_video` while you review the graph.
-
-### 5. Quality pipeline built for “real short film” feel
-
-Injected constitution (`www/js/quality-prompt.js`): deep thinking, word-level prompt fidelity, cinematic layers, character performance, deterministic `seed()` (no `Math.random`), maximal dense code toward output limits, bounce-on-compile/dry-run failure.  
-See [`docs/prompts/motioncraft-system-prompt.md`](docs/prompts/motioncraft-system-prompt.md).
+1. **Code is the picture** — the LLM writes drawing logic, not a sealed media file.  
+2. **Director ≠ studio** — the model decides narrative and paint; MotionCraft owns graph, clock/pages, validation, export.  
+3. **Bring your own model** — cheap/local for drafts, stronger models for heroes; DPAPI-protected keys, never stored plain in `.vd`.  
+4. **Humans and agents share one graph** — UI clicks and MCP tools mutate the same project truth.  
+5. **Two media, two constitutions** — video aims for short-film motion; comics aim for print manga craft. Prompts are split on purpose.  
 
 ---
 
-## Product advantages (checklist)
+## Two pipelines (full comparison)
 
-- **Editable intermediate art** — code is the asset; regenerate one shot without losing the rest  
-- **Deterministic timeline** — scrub preview matches export  
-- **Node graph** — sequence shots, attach camera / FX / character / VO  
-- **Streaming Director UI** — one panel for outline + per-shot progress (also `/ai-progress` for agents)  
-- **Local privacy** — encrypted `.vd` vaults + DPAPI keys  
-- **Export beside project** — MP4 preferred, WebM fallback, next to the open `.vd` when possible  
-- **Offline-capable rendering** — once code exists, play/export without calling the LLM again  
-- **BYO model economics** — use cheap/local models for drafts, stronger models for hero shots  
+| | **Video short film** | **Anime / page comic** |
+|--|----------------------|-------------------------|
+| **Deliverable** | MP4 (preferred) / WebM | PNG sequence / multi-page PDF |
+| **Unit** | `scene` + duration | `comic_page` → `comic_panel` → `comic_shot` |
+| **Time** | Clock `t` (seconds) drives motion | **Still frames**; pose / speed lines / screentone (no `t` animation) |
+| **Layout authority** | Shot count & durations follow the user prompt | **AI decides** panel count, size, and `layout{x,y,w,h}` (no host default grid) |
+| **Quality focus** | Cinematic multi-system motion, event beats | One job per panel, shot-size rhythm, ink/tone, designed grids, first-pass correct code |
+| **Director** | AI Director / `run_director` | Comic Director / `run_comic_director` |
+| **Regen one piece** | Scene / character / effect directors | `run_comic_shot_director` (neighbors + page context) |
+| **Preview** | Timeline scrub + play | Flip through composed pages |
+| **Export** | Same paint loop as preview → beside `.vd` | Compose pages → PNG or PDF |
+| **Same project** | Can coexist with comic nodes; timelines don’t mix | Does not enter video `bakeTimeline` |
 
 ---
 
-## What you get
+## Capabilities in depth
 
-### Node-based storyboard studio
+### 1. Node-based studio
 
 | Area | Role |
 |------|------|
-| Left | Node library: scene, text, image, video, character, chart, effect, audio, narration, camera, AI |
-| Center | Graph — drag, `sequence` (order) / `attach` (overlay) |
-| Right | Props — prompts, layout, generated `html` / `css` / `js` |
-| Bottom | Timeline — seek, scrub, playhead |
+| **Left** | Library: video + comic node types |
+| **Center** | Graph: drag, connect, see story structure |
+| **Right** | Props: prompts, layout, generated code, per-node regenerate |
+| **Bottom** | Video timeline; comic page-flip preview |
 
-### AI Director pipeline
+Video edges: `sequence`, `attach`.  
+Comic edges: `sequence` (pages), `contain` (page→panel), `compose` (panel→shot).
 
-1. **Outline** — shot count and each shot’s duration follow the **user prompt** (UI duration is only a fallback); cinematic fields (style, light, camera, effects…)  
-2. **Per-shot code** — IIFE → `{ setup, draw }`  
+### 2. Video AI Director
+
+1. **Outline** — shot count & durations follow the **user prompt**  
+2. **Per-shot code** — IIFE → `{ setup, draw }` with host `t`  
 3. **Prompt fidelity** — meaningful words must land on screen  
-4. **Validate & bounce** — compile + dry-run; fix seed / DOM / undefined vars via retries  
-5. **Attachments** — camera, full-bleed FX, character performance, narration  
+4. **Validate & bounce** — compile + dry-run; no `Math.random` (use `seed`)  
+5. **Attachments** — camera, full-bleed FX, character, narration  
 
-Single-node AI (scene / character / effect / chart) uses the same contracts and **connection continuity** (host scene + neighbors).
+Templates include neon city, daylight product, data demo, and more.
 
-### Composer & export
+### 3. Anime / page-comic AI Director
 
-- Host clock `t` (seconds); scenes must **not** start their own `requestAnimationFrame`  
-- Camera + letterbox/vignette; atmospheric FX full-bleed (no hard “panel” boxes)  
-- Record the same paint loop as preview → video file  
+1. **Four-level outline (no code)** — work → scene → page task card → panel design card  
+2. **AI owns geometry** — `panelCount`, per-panel `size` + precise `layout`; main panel largest; no lazy equal grids  
+3. **Stream page → panel** — continuity from neighbors and page tasks  
+4. **Manga craft** — bold outer / fine inner lines, screentone, silhouette, bubbles first, one job per panel  
+5. **Correctness first** — complete, compiling, dry-runnable html/css/js on first delivery  
+6. **Compose & export** — ComicComposer → PNG sequence or PDF  
+
+v1 targets **page comics** (multi-panel pages), not vertical webtoons.
+
+### 4. Models & secrets
+
+- Slots: OpenAI / Anthropic / Doubao / DeepSeek / **Custom** (Ollama, vLLM, OpenRouter, gateways…)  
+- Keys: DPAPI-protected in `%AppData%\MotionCraft\settings.json`; MCP never returns plaintext  
+- Director default vendor or **auto-fallback** to any slot with a key  
+
+### 5. Agent / MCP control
+
+With `MotionCraft.exe` running, Cursor, Doubao, Hermes Agent, 小龙虾, or custom scripts can read/write the project, run video or comic directors, regenerate one node, preview, and export — **same quality pipeline** as the UI.
+
+### 6. Projects & privacy
+
+- Encrypted local **`.vd` vaults**  
+- Offline preview/export once code exists  
+- Exports prefer the folder next to the open `.vd`  
+
+---
+
+## Typical workflows
+
+### A. AI short film
+
+1. New/open `.vd`, configure API  
+2. **AI Director** — prompt with shot count, timing, mood  
+3. Outline → per-shot code → scrub timeline  
+4. Regenerate one `scene` / FX / character if needed  
+5. **Export** MP4/WebM  
+
+### B. Anime page comic
+
+1. Same API, open **Comic Director** (or comic template)  
+2. Story prompt → AI pages/panels (including layouts)  
+3. Stream panel code; flip-page preview  
+4. Regenerate one `comic_shot` if needed  
+5. **Comic export** PNG or PDF  
+
+### C. Agent-driven
+
+1. Keep the desktop app running; paste MCP config  
+2. Agent calls `run_director` or `run_comic_director`  
+3. You review the graph, edit code, or issue the next command  
 
 ---
 
@@ -133,119 +165,109 @@ Single-node AI (scene / character / effect / chart) uses the same contracts and 
 ```
 WinForms.exe + WebView2
   └─ www/ workbench
-       ├─ Graph · Props · Timeline · Stream UI
-       ├─ Director (multi-vendor router + quality prompts)
-       ├─ Composer (compile IIFE → paint frames)
-       └─ Export (captureStream + MediaRecorder)
-Local HTTP Bridge (127.0.0.1)
+       ├─ Graph · Props · Timeline / Comic flip · Stream AI UI
+       ├─ Video Director + Comic Director (split quality prompts)
+       ├─ Composer (video) · ComicComposer (static pages)
+       └─ Export video · Export comic PNG/PDF
+Local HTTP bridge (127.0.0.1)
   └─ MCP Server (stdio)
-       ← Cursor / Doubao / Hermes Agent / 小龙虾 / custom agents
+       ← Cursor / Doubao / Hermes / 小龙虾 / custom scripts
 ```
 
-**Pixel contract:** only model (or local synthesizer) `draw()` paints the frame. Host supplies canvas, clock, overlays, recording.
+```
+Prompt → Your LLM API
+              ↓
+        ┌─────┴─────┐
+        ▼           ▼
+   Video shot JS   Comic panel JS
+   draw({ t })     still draw
+        ↓           ↓
+   Timeline        Page compose
+        ↓           ↓
+   MP4 / WebM      PNG / PDF
+```
 
-```
-Prompt → Your LLM API (Doubao / DeepSeek / OpenAI / Ollama / …)
-           ↓
-     Per-shot HTML + CSS + JS  (IIFE → { setup, draw })
-           ↓
-     Composer: validate → dry-run → paint draw({ t })
-           ↓
-     Overlays: camera · character · effect · narration · …
-           ↓
-     captureStream + MediaRecorder → video next to .vd
-```
+**Pixel contract:** only model (or local synthesizer) `draw()` paints pixels. Host supplies canvas, clock or page rects, overlays, and record/export.
+
+---
+
+## Node types
+
+### Video
+
+| Type | Role |
+|------|------|
+| `scene` | Main shot — model paints the world |
+| `camera` | Move / zoom / handheld; letterbox + vignette |
+| `effect` | Full-bleed rain / glow / particles / … |
+| `character` | Attached performer |
+| `narration` / `text` | VO / captions |
+| `chart` / `image` / `video` / `audio` | Media & data |
+| `ai` | Director prompt metadata |
+
+### Anime / page comic
+
+| Type | Role |
+|------|------|
+| `comic_page` | Page: format, reading path, turn hook, `panelCount` |
+| `comic_panel` | Panel frame: order, shape, AI `layout` |
+| `comic_shot` | Panel art: `html` / `css` / `js` still |
 
 ---
 
 ## Quick start
 
-1. Build & run the Host (below)  
-2. **New** or **Open** a `.vd` project  
-3. **Tools → API / Model Settings** — paste any OpenAI-compatible base URL + key + model  
-4. Open **AI Director**, write a cinematic prompt, generate  
-5. Inspect each scene’s `js`, scrub timeline, tweak or regenerate one node  
-6. **Export** — file lands beside the `.vd` when a project path exists  
-
-### Shortcuts
-
-| Key | Action |
-|-----|--------|
-| Ctrl+N / O / S | New / Open / Save `.vd` |
-| Delete | Delete selected node or edge |
-| Esc | Close preview |
-| Space | Preview / Pause |
-| Space + drag | Pan canvas |
-
-Duration: **1–600 s** (top bar).
-
----
-
-## Requirements (keep it light)
-
-**Minimum practical setup**
+### Requirements
 
 - Windows 10/11  
-- [.NET 8](https://dotnet.microsoft.com/) + [Visual Studio 2022](https://visualstudio.microsoft.com/) (“.NET Desktop Development”) *or* `dotnet` CLI  
-- [WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/) (usually preinstalled on Windows 11)  
-- Network access to **your** LLM endpoint (or local Ollama)  
+- [.NET 8](https://dotnet.microsoft.com/) + VS 2022 (“.NET Desktop Development”) or `dotnet` CLI  
+- [WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/)  
+- Access to **your** LLM endpoint (or local Ollama)  
+- Node.js 18+ **only** for MCP  
 
-**Optional**
+**Not required:** dedicated AI GPU, local T2V weights, vendor-locked video SaaS.
 
-- Node.js 18+ — only if you use the **MCP** server for Cursor / agents  
+### Build & run
 
-**Not required for core use**
-
-- Dedicated AI GPU / local Stable Video / Runway-class hardware  
-- Vendor-locked video subscription (unless you choose that API yourself)  
-
----
-
-## Build & run
-
-**Visual Studio 2022**
-
-1. Open `MotionCraft.sln`  
-2. Startup project: `MotionCraft.Host`  
-3. **F5**  
-4. Output: `src/MotionCraft.Host/bin/Debug/net8.0-windows/MotionCraft.exe`  
-
-**CLI**
+**Visual Studio:** open `MotionCraft.sln` → startup `MotionCraft.Host` → **F5**.
 
 ```powershell
 dotnet build MotionCraft.sln -c Release
 dotnet run --project src/MotionCraft.Host -c Release
 ```
 
-Browser-only: open `www/index.html` for frontend debugging (no host menus / MCP; AI falls back to rule synthesizers without a host-injected key).
+Optional: open `www/index.html` for frontend-only debugging.
 
----
+### API setup
 
-## API setup (Doubao, DeepSeek, Custom, …)
+**Tools → API / Model Settings** — base URL, model id, API key.
 
-1. **Tools → API / Model Settings**  
-2. Fill **base URL**, **model id**, **API key** for the vendor you use  
-3. Set **default vendor**, or leave Director on **auto** (uses any slot that has a key)  
-
-Examples:
-
-| Goal | baseUrl (typical) |
-|------|-------------------|
+| Goal | Typical baseUrl |
+|------|-----------------|
 | Doubao / Ark | `https://ark.cn-beijing.volces.com/api/v3` |
 | DeepSeek | `https://api.deepseek.com/v1` |
 | OpenAI | `https://api.openai.com/v1` |
 | Local Ollama | `http://127.0.0.1:11434/v1` |
-| Company gateway | Your OpenAI-compatible proxy URL |
 
-Anthropic uses its native Messages API path in the router. Everything else goes through OpenAI-compatible chat completions (`max_tokens` raised for dense shot code).
+### Shortcuts
+
+| Key | Action |
+|-----|--------|
+| Ctrl+N / O / S | New / Open / Save `.vd` |
+| Delete | Delete selection |
+| Esc | Close preview |
+| Space | Video play / pause |
+| Space + drag | Pan canvas |
+
+Video duration bar: **1–600 s**.
 
 ---
 
-## MCP & agent control
+## MCP setup
 
-1. Keep **MotionCraft.exe** running (bridge listens on `127.0.0.1`, port stored in settings)  
+1. Keep **MotionCraft.exe** running  
 2. `cd mcp && npm install`  
-3. **Tools → Copy MCP Config** → paste into Cursor / Doubao / Hermes / 小龙虾 / other MCP host  
+3. **Tools → Copy MCP Config** → paste into your MCP host  
 
 ```json
 {
@@ -261,38 +283,40 @@ Anthropic uses its native Messages API path in the router. Everything else goes 
 }
 ```
 
-Use the bridge port written at startup (example `17865` may differ).
+Use the bridge port written at startup.
 
 ### Tools
 
-`health` · `get_project` · `set_project` · `list_nodes` · `add_node` · `connect` · `update_props` · `run_director` · `run_scene_director` · `run_character_director` · `run_chart_director` · `run_effect_director` · `preview` · `export_video`
+**Project:** `health` · `get_project` · `set_project` · `list_nodes` · `add_node` · `connect` · `update_props` · `preview`  
 
-Agents can regenerate a single effect node, rewrite one scene, or run a full director pass — you keep the graph as source of truth.
+**Video:** `run_director` · `run_scene_director` · `run_character_director` · `run_chart_director` · `run_effect_director` · `export_video`  
 
----
-
-## Node types
-
-| Type | Role |
-|------|------|
-| `scene` | Main shot — model `html/css/js` paints the world |
-| `camera` | Pan / zoom / handheld / tilt; letterbox + soft vignette |
-| `effect` | Full-bleed rain / glow / particles / spark / fade |
-| `character` | Attached performer — ground layout, expression + motion |
-| `narration` / `text` | VO lower-third or captions |
-| `chart` / `image` / `video` / `audio` | Data viz & media |
-| `ai` | Director prompt / provider metadata |
-
-Edges: **`sequence`** (shot order), **`attach`** (overlay on a scene).
+**Anime / comic:** `run_comic_director` · `run_comic_shot_director` · `export_comic`
 
 ---
 
-## Docs
+## How it compares
 
-- Design: [`docs/superpowers/specs/2026-10-08-ai-motion-studio-design.md`](docs/superpowers/specs/2026-10-08-ai-motion-studio-design.md)  
-- Plan: [`docs/superpowers/plans/2026-10-08-ai-motion-studio.md`](docs/superpowers/plans/2026-10-08-ai-motion-studio.md)  
-- Quality constitution: [`docs/prompts/motioncraft-system-prompt.md`](docs/prompts/motioncraft-system-prompt.md)  
-- Shot schema: [`docs/prompts/shot.schema.json`](docs/prompts/shot.schema.json)  
+| | T2V SaaS | T2I + manual comic layout | **MotionCraft** |
+|--|----------|---------------------------|-----------------|
+| Intermediate | Sealed file | Bitmaps | **Runnable code** |
+| Fix one beat | Hard | Redraw | Single-node regen + continuity |
+| Panel layout | N/A | Manual | **AI designs count & coords** |
+| Hardware | Cloud GPU | Tool-dependent | Normal PC + your API |
+| Agents | Rare | Rare | **First-class MCP** |
+| Video + comic | Usually separate | Separate | **One studio, two pipelines** |
+
+---
+
+## Documentation
+
+| Doc | Topic |
+|-----|--------|
+| [`docs/prompts/motioncraft-system-prompt.md`](docs/prompts/motioncraft-system-prompt.md) | Quality constitution (video + comic) |
+| [`docs/superpowers/specs/2026-10-08-ai-motion-studio-design.md`](docs/superpowers/specs/2026-10-08-ai-motion-studio-design.md) | Video studio design |
+| [`docs/superpowers/specs/2026-10-09-comic-nodes-design.md`](docs/superpowers/specs/2026-10-09-comic-nodes-design.md) | Comic nodes & streaming |
+| [`docs/prompts/shot.schema.json`](docs/prompts/shot.schema.json) | Shot JSON schema |
+| [`mcp/README.md`](mcp/README.md) | MCP server notes |
 
 ---
 

@@ -223,6 +223,9 @@ export function renderProps(el, node, {
     );
     fields.push(field('mainPanelOrder', '主格序号', p.mainPanelOrder ?? 1, 'number'));
     fields.push(
+      field('panelCount', '本页格数（AI）', p.panelCount ?? '', 'number'),
+    );
+    fields.push(
       selectField('readingPath', '阅读路径', p.readingPath || 'Z', [
         'Z',
         '之',
@@ -246,7 +249,7 @@ export function renderProps(el, node, {
   }
   if (node.type === 'comic_panel') {
     fields.push(field('order', '阅读序号', p.order ?? 1, 'number'));
-    fields.push(selectField('size', '格大小', p.size || 'm', ['s', 'm', 'l', 'xl']));
+    fields.push(selectField('size', '格大小（AI）', p.size || 'm', ['xs', 's', 'm', 'l', 'xl']));
     fields.push(
       selectField('shape', '形状', p.shape || 'rect', [
         'rect',

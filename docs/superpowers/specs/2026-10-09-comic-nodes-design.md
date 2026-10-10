@@ -39,7 +39,7 @@ runComicDirector
                       校验 → 本地修括号等 → 失败打回
                       写入 comic_shot → onProject 刷新页预览
     ↓
-ComicComposer：按页拼合格内 draw（静态 t=0）
+ComicComposer：按页拼合格内 draw（静态完成稿；runtime 签名兼容 t，提示词禁 t 动画）
     ↓
 导出 PNG 序列 / PDF
 ```
@@ -137,12 +137,15 @@ ComicComposer：按页拼合格内 draw（静态 t=0）
 
 每层提示词引导模型回答五问：**先看什么？后看什么？停多久？感受什么？翻页后得到什么？**
 
-### 5.6 代码厚度
+### 5.6 代码厚度与静态提示词
 
-- 单格请求 `max_tokens` 与视频相同（当前 16384）。  
-- 新增 `MAXIMAL_COMIC_CODE_OUTPUT`（从 `MAXIMAL_CODE_OUTPUT` 改编）：html、css、js **三者**都尽量吃满上限；简格不许短码；禁止只厚 js。  
+- 单格请求 `max_tokens` 与视频相同（当前 16384），但**提示词宪法独立**，禁止嵌入视频 `MAXIMAL_CODE_OUTPUT` / `CINEMATIC_VIDEO`。  
+- `STATIC_COMIC_STILL` + `MAXIMAL_COMIC_CODE_OUTPUT` + `COMIC_JS_CONTRACT`：html、css、js **三者**都尽量吃满；简格不许短码；禁止只厚 js。  
+- 一格 = 可印刷静帧；动感用姿态/速度线/拟声，**禁止** t 驱动连续运动或「截 t=0」借口。  
+- **页内版式（AI 全权决定）**：`COMIC_PAGE_LAYOUT_DOCTRINE` — 每页 `panelCount`、每格 `size` 与 `layout{x,y,w,h}` 均由大纲模型给出；宿主**不**套用 `defaultComicPanelLayouts`。主格面积明显最大；禁止等分网格/通栏叠罗汉；缺 layout / panelCount 不一致 → 打回。  
+- **单格漫画感**：`COMIC_CRAFT_QUALIA` + 更新后的绘制流水线 — 一格一事、景别交替、先留气泡、体块剪影、外粗内细、网点/排线；禁光滑海报风。  
 - 过短 → 视为不合格并 repair 打回。  
-- 像素以 canvas `ctx` 为主；对话框/拟声词在格内框由 js 绘制（与视频 runtime 约束一致）。
+- 像素以 canvas `ctx` 为主；对话框/拟声词由 js 画进格内。
 
 ### 5.7 中断与续跑
 

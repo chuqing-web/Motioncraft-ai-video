@@ -37,40 +37,106 @@ export function defaultLayout(type) {
   }
 }
 
-/** Default normalized panel rects for a page with n panels (manga-ish grids). */
+/**
+ * Fallback panel rects when outline omits layout.
+ * Designed (hero + satellites), not equal grids / stacked equal bars.
+ */
 export function defaultComicPanelLayouts(n) {
   const count = Math.max(1, Math.min(12, Number(n) || 1));
   const g = 0.02;
-  const m = 0.05;
-  if (count === 1) return [{ x: m, y: m, w: 1 - 2 * m, h: 1 - 2 * m }];
+  const m = 0.04;
+  const innerW = 1 - 2 * m;
+  if (count === 1) return [{ x: m, y: m, w: innerW, h: 1 - 2 * m }];
   if (count === 2) {
-    const h = (1 - 2 * m - g) / 2;
+    // Large establish + smaller hook / reaction
+    const topH = 0.58;
     return [
-      { x: m, y: m, w: 1 - 2 * m, h },
-      { x: m, y: m + h + g, w: 1 - 2 * m, h },
+      { x: m, y: m, w: innerW, h: topH },
+      { x: m, y: m + topH + g, w: innerW, h: 1 - 2 * m - topH - g },
     ];
   }
   if (count === 3) {
-    const topH = 0.42;
-    const botH = (1 - 2 * m - g - topH) / 2;
+    // Hero top + two unequal bottom (left wider)
+    const topH = 0.5;
+    const botY = m + topH + g;
+    const botH = 1 - m - botY;
+    const leftW = innerW * 0.58;
     return [
-      { x: m, y: m, w: 1 - 2 * m, h: topH },
-      { x: m, y: m + topH + g, w: (1 - 2 * m - g) / 2, h: botH * 2 + g },
-      { x: m + (1 - 2 * m - g) / 2 + g, y: m + topH + g, w: (1 - 2 * m - g) / 2, h: botH * 2 + g },
+      { x: m, y: m, w: innerW, h: topH },
+      { x: m, y: botY, w: leftW, h: botH },
+      { x: m + leftW + g, y: botY, w: innerW - leftW - g, h: botH },
     ];
   }
-  const cols = count <= 4 ? 2 : count <= 6 ? 2 : 3;
-  const rows = Math.ceil(count / cols);
-  const cellW = (1 - 2 * m - g * (cols - 1)) / cols;
-  const cellH = (1 - 2 * m - g * (rows - 1)) / rows;
-  const out = [];
-  for (let i = 0; i < count; i++) {
+  if (count === 4) {
+    // Big left hero + three stacked right
+    const heroW = innerW * 0.58;
+    const sideX = m + heroW + g;
+    const sideW = innerW - heroW - g;
+    const rowH = (1 - 2 * m - 2 * g) / 3;
+    return [
+      { x: m, y: m, w: heroW, h: 1 - 2 * m },
+      { x: sideX, y: m, w: sideW, h: rowH },
+      { x: sideX, y: m + rowH + g, w: sideW, h: rowH },
+      { x: sideX, y: m + 2 * (rowH + g), w: sideW, h: rowH },
+    ];
+  }
+  if (count === 5) {
+    // Wide hero + 2 mid + 2 bottom (bottom pair unequal)
+    const topH = 0.4;
+    const midH = 0.24;
+    const botY = m + topH + g + midH + g;
+    const botH = 1 - m - botY;
+    const midW = (innerW - g) / 2;
+    const leftW = innerW * 0.62;
+    return [
+      { x: m, y: m, w: innerW, h: topH },
+      { x: m, y: m + topH + g, w: midW, h: midH },
+      { x: m + midW + g, y: m + topH + g, w: midW, h: midH },
+      { x: m, y: botY, w: leftW, h: botH },
+      { x: m + leftW + g, y: botY, w: innerW - leftW - g, h: botH },
+    ];
+  }
+  if (count === 6) {
+    // Hero + five satellites (not 2×3 equal)
+    const topH = 0.36;
+    const midH = 0.28;
+    const botY = m + topH + g + midH + g;
+    const botH = 1 - m - botY;
+    const third = (innerW - 2 * g) / 3;
+    const leftW = innerW * 0.55;
+    return [
+      { x: m, y: m, w: innerW, h: topH },
+      { x: m, y: m + topH + g, w: third, h: midH },
+      { x: m + third + g, y: m + topH + g, w: third, h: midH },
+      { x: m + 2 * (third + g), y: m + topH + g, w: third, h: midH },
+      { x: m, y: botY, w: leftW, h: botH },
+      { x: m + leftW + g, y: botY, w: innerW - leftW - g, h: botH },
+    ];
+  }
+  // 7–12: first panel hero strip, remaining in uneven rows (avoid equal cells)
+  const heroH = 0.34;
+  const rest = count - 1;
+  const cols = rest <= 4 ? 2 : 3;
+  const rows = Math.ceil(rest / cols);
+  const areaH = 1 - 2 * m - heroH - g;
+  const cellH = (areaH - g * (rows - 1)) / rows;
+  const out = [{ x: m, y: m, w: innerW, h: heroH }];
+  for (let i = 0; i < rest; i++) {
     const c = i % cols;
     const r = Math.floor(i / cols);
+    const rowCols = Math.min(cols, rest - r * cols);
+    // last cell in a short row stretches; first col slightly wider
+    const weights = Array.from({ length: rowCols }, (_, k) => (k === 0 ? 1.25 : 1));
+    const sum = weights.reduce((a, b) => a + b, 0);
+    let x = m;
+    for (let k = 0; k < c; k++) {
+      x += (innerW - g * (rowCols - 1)) * (weights[k] / sum) + g;
+    }
+    const w = (innerW - g * (rowCols - 1)) * (weights[c] / sum);
     out.push({
-      x: m + c * (cellW + g),
-      y: m + r * (cellH + g),
-      w: cellW,
+      x,
+      y: m + heroH + g + r * (cellH + g),
+      w,
       h: cellH,
     });
   }

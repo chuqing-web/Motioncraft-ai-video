@@ -27,6 +27,25 @@
 | `SYSTEM_SCENE` / `SYSTEM_CHARACTER` / `SYSTEM_EFFECT` | 单镜/节点代码 |
 | `buildDirectorUserMessage` | 大纲 user（强制先读提示词再拆镜） |
 | `buildDirectorShotUserMessage` | 逐镜代码 user（本镜关键词 ≥2 决策） |
+| `STATIC_COMIC_STILL` | **静态页漫**：一格=完成静帧；禁 t 驱动运动/视频时间轴思维 |
+| `COMIC_PAGE_LAYOUT_DOCTRINE` | **页内分格版式**：格数/大小/位置均由 AI 决定；主格最大；禁等分/通栏叠罗汉；宿主无默认网格 |
+| `COMIC_COUNT_INTEGRITY` | **数量序号**：panelCount=length；order=1..N；主格唯一且 mainPanelOrder 对齐；size↔面积 |
+| `COMIC_HERO_DOMINANCE` | **主格视觉统治**：area≥次大×1.35；先主后辅；禁等分后贴主格标签 |
+| `COMIC_CRAFT_QUALIA` | **漫画感/质感**：墨线粗细、网点排线、剪影、速度线；禁光滑海报/CG 风 |
+| `COMIC_CODE_CORRECTNESS` | **①正确→②质量→③数量**：禁未定义标识符；工具板 seed/clamp/lerp；先可跑再吃满三字段 |
+| `COMIC_JS_CONTRACT` / `MAXIMAL_COMIC_CODE_OUTPUT` | 漫画专用契约与厚度（**不**嵌入视频 `MAXIMAL_CODE_OUTPUT`） |
+| `COMIC_NEGATIVE` / `COMIC_SELF_CHECK` | 漫画负向禁令与出码自检 |
+| `SYSTEM_COMIC_OUTLINE` / `SYSTEM_COMIC_SHOT` | 页漫大纲 / 单格静帧出码（经 `comic-director.js`） |
+| `buildComicOutlineUserMessage` / `buildComicShotUserMessage` | 页漫 user 消息 |
+
+## 视频 vs 漫画（提示词分流）
+
+| | 视频（`director.js`） | 漫画（`comic-director.js`） |
+|--|----------------------|---------------------------|
+| 最高标准 | `CINEMATIC_VIDEO`（多系统运动、事件节拍） | `STATIC_COMIC_STILL`（印刷级静帧） |
+| 时间 | `draw({ t })` 驱动连续运动 | 忽略 t；姿态/速度线/拟声表达动感 |
+| 厚度条款 | `MAXIMAL_CODE_OUTPUT` | `MAXIMAL_COMIC_CODE_OUTPUT`（独立，不复用视频条） |
+| 导出 | 时间轴 / 录像 | PNG / PDF 页 |
 
 ## 编译闸门（运行时）
 

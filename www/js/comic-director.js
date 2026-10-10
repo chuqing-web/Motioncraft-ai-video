@@ -3,7 +3,7 @@
  * Reuses director requestModelJson (local repair + bounce) and maximal code rules.
  */
 import { createNode, createEdge, createEmptyProject, touch } from './model.js';
-import { defaultComicPanelLayouts, clampLayout } from './layout.js';
+import { clampLayout } from './layout.js';
 import {
   requestModelJson,
   validateSingleShotPayload,
@@ -103,6 +103,9 @@ function panelBrief(panel, shot) {
     order: Number(p.order) || 1,
     size: p.size || 'm',
     shape: p.shape || 'rect',
+    gutter: p.gutter || 'normal',
+    layout: p.layout || null,
+    layoutNote: p.layoutNote || '',
     functionVerb: pickField(p, s, 'functionVerb', '推进'),
     timeSpan: pickField(p, s, 'timeSpan', '几秒'),
     infoChange: pickField(p, s, 'infoChange'),
@@ -215,8 +218,9 @@ function validateComicShotPayload(raw, label) {
       ok: false,
       error: `${label} 代码过短（html+css+js=${total} < ${MIN_CODE_CHARS}），未吃满上限`,
       repairBrief: `错误类型：输出过短\n错在哪里：三字段合计仅 ${total} 字符`,
-      repairMessage: `【打回修正 — 代码厚度】
+      repairMessage: `【打回修正 — 代码厚度且必须一次写对】
 ${label} 的 html+css+js 合计过短（${total}）。必须三者都加厚，逼近输出上限，禁止简格少写或只厚 js。
+同时：整段必须完整可 parse、js 可编译、setup/draw 可试跑、无截断/无未定义变量——禁止再交有缺陷代码。
 整段重发合法 JSON。`,
     };
   }
@@ -291,6 +295,7 @@ function applyDesignCardToNodes(panel, shot, br) {
     'panelRole',
     'howServesPage',
     'brief',
+    'layoutNote',
   ];
   for (const k of keys) {
     if (br[k] != null && String(br[k]).trim()) {
@@ -310,6 +315,8 @@ function applyPageTaskCard(pageNode, pb) {
   pageNode.props.readingPath = pb.readingPath || 'Z';
   pageNode.props.linkPrevPage = pb.linkPrevPage || '';
   pageNode.props.linkNextPage = pb.linkNextPage || '';
+  const n = Number(pb.panelCount);
+  pageNode.props.panelCount = Number.isFinite(n) && n > 0 ? n : (pb.panels?.length || 0);
 }
 
 function validateComicOutline(raw) {
@@ -384,7 +391,27 @@ function validateComicOutline(raw) {
         ok: false,
         error: `页面「${page.title || '?'}」缺少 panels`,
         repairBrief: '错误类型：页无分格',
-        repairMessage: '【打回】每一页必须有非空 panels 数组。',
+        repairMessage:
+          '【打回】每一页必须由你决定格数并输出非空 panels[]；写明 panelCount=panels.length；每格含 size+layout。宿主无默认分格。',
+      };
+    }
+    const declaredCount = Number(page.panelCount);
+    if (Number.isFinite(declaredCount) && declaredCount !== page.panels.length) {
+      return {
+        ok: false,
+        error: `页面「${page.title || '?'}」panelCount(${declaredCount}) ≠ panels.length(${page.panels.length})`,
+        repairBrief: '错误类型：格数不一致',
+        repairMessage:
+          '【打回】panelCount 必须等于 panels 数组长度。格数由你决定，改 panelCount 或增删 panels 使二者一致。',
+      };
+    }
+    if (!Number.isFinite(declaredCount) || declaredCount < 1) {
+      return {
+        ok: false,
+        error: `页面「${page.title || '?'}」缺少 panelCount`,
+        repairBrief: '错误类型：未声明本页格数',
+        repairMessage:
+          '【打回】每一页必须由你决定并填写 panelCount（正整数），且等于 panels.length。禁止省略、禁止套固定格数模板。',
       };
     }
     const mains = page.panels.filter((pan) => pan.panelRole === '主格');
@@ -393,9 +420,13 @@ function validateComicOutline(raw) {
         ok: false,
         error: `页面「${page.title || '?'}」必须恰好 1 个主格（当前 ${mains.length}）`,
         repairBrief: '错误类型：主格数量错误',
-        repairMessage: '【打回】每一页 panels 中 panelRole="主格" 必须恰好一个，并与 mainPanelOrder 一致。',
+        repairMessage:
+          '【打回】每一页 panels 中 panelRole="主格" 必须恰好一个，且 mainPanelOrder 等于该主格的 order。禁止 0 个或多个主格。',
       };
     }
+    const countFail = validatePagePanelCounts(page);
+    if (countFail) return countFail;
+    const layouts = [];
     for (const pan of page.panels) {
       const missing = [];
       if (!pan.functionVerb) missing.push('functionVerb');
@@ -406,17 +437,250 @@ function validateComicOutline(raw) {
       if (!pan.staging) missing.push('staging');
       if (!pan.panelRole) missing.push('panelRole');
       if (!pan.howServesPage) missing.push('howServesPage');
+      if (!pan.size || !['xs', 's', 'm', 'l', 'xl'].includes(String(pan.size))) {
+        missing.push('size(xs|s|m|l|xl)');
+      }
+      const L = pan.layout;
+      if (
+        !L ||
+        typeof L !== 'object' ||
+        ![L.x, L.y, L.w, L.h].every((n) => Number.isFinite(Number(n)))
+      ) {
+        missing.push('layout{x,y,w,h}');
+      }
       if (missing.length) {
         return {
           ok: false,
           error: `格「${pan.title || pan.order || '?'}」缺少设计卡字段: ${missing.join(',')}`,
           repairBrief: `错误类型：格设计卡不完整\n错在哪里：${missing.join(',')}`,
-          repairMessage: `【打回】每一格必须写满设计卡 + panelRole + howServesPage。缺：${missing.join(', ')}。禁止代码。`,
+          repairMessage: `【打回】每一格必须写满设计卡 + panelRole + howServesPage + 精确 layout{x,y,w,h}。缺：${missing.join(', ')}。禁止代码。`,
+        };
+      }
+      layouts.push({
+        pan,
+        x: Number(L.x),
+        y: Number(L.y),
+        w: Number(L.w),
+        h: Number(L.h),
+        area: Number(L.w) * Number(L.h),
+      });
+    }
+    const layoutFail = validatePagePanelLayouts(page, layouts);
+    if (layoutFail) return layoutFail;
+    const sizeFail = validateSizeMatchesArea(page, layouts);
+    if (sizeFail) return sizeFail;
+  }
+  if (raw.pages.length >= 3) {
+    const counts = raw.pages.map((p) => Number(p.panelCount) || p.panels.length);
+    if (counts.every((c) => c === counts[0])) {
+      return {
+        ok: false,
+        error: `全本每页都是 ${counts[0]} 格（格数未由叙事变化）`,
+        repairBrief: '错误类型：固定格数模板',
+        repairMessage:
+          '【打回】格数须由你按页自定。至少让部分页的 panelCount 不同（如 2/4/3 交替），禁止全本每页同一格数。',
+      };
+    }
+  }
+  return { ok: true, value: raw };
+}
+
+const LAYOUT_MARGIN = 0.028;
+const LAYOUT_MIN_GUTTER = 0.018;
+
+/** order 1..N unique; mainPanelOrder matches the sole 主格. */
+function validatePagePanelCounts(page) {
+  const title = page.title || '?';
+  const n = page.panels.length;
+  const orders = page.panels.map((p) => Number(p.order));
+  if (orders.some((o) => !Number.isFinite(o) || o < 1 || o !== Math.floor(o))) {
+    return {
+      ok: false,
+      error: `页面「${title}」存在非法 order（须为正整数）`,
+      repairBrief: '错误类型：order 非法',
+      repairMessage: `【打回】每格 order 必须是 1..${n} 的正整数。当前：${orders.join(',')}。重写 order 为连续序号。`,
+    };
+  }
+  const sorted = [...orders].sort((a, b) => a - b);
+  for (let i = 0; i < n; i++) {
+    if (sorted[i] !== i + 1) {
+      return {
+        ok: false,
+        error: `页面「${title}」order 必须为 1..${n} 连续不重复（当前 ${orders.join(',')}）`,
+        repairBrief: '错误类型：order 跳号/重复',
+        repairMessage: `【打回】panels[].order 必须恰好是 1,2,…,${n} 各出现一次。禁止跳号、重复、从 0 起。当前：${orders.join(',')}。`,
+      };
+    }
+  }
+  const main = page.panels.find((p) => p.panelRole === '主格');
+  const mainOrder = Number(main?.order);
+  const declaredMain = Number(page.mainPanelOrder);
+  if (!Number.isFinite(declaredMain) || declaredMain !== mainOrder) {
+    return {
+      ok: false,
+      error: `页面「${title}」mainPanelOrder(${page.mainPanelOrder}) ≠ 主格 order(${mainOrder})`,
+      repairBrief: '错误类型：主格序号不一致',
+      repairMessage: `【打回】mainPanelOrder 必须等于 panelRole="主格" 那一格的 order（应为 ${mainOrder}）。逐项核对数量关系后再交。`,
+    };
+  }
+  return null;
+}
+
+/** Largest area panel should be 主格 and size l|xl. */
+function validateSizeMatchesArea(page, layouts) {
+  const title = page.title || '?';
+  if (layouts.length < 2) return null;
+  const byArea = [...layouts].sort((a, b) => b.area - a.area);
+  const biggest = byArea[0];
+  if (biggest.pan.panelRole !== '主格') {
+    return {
+      ok: false,
+      error: `页面「${title}」面积最大的格不是主格（数量/角色错误）`,
+      repairBrief: '错误类型：主格面积未最大',
+      repairMessage:
+        '【打回】面积最大的 layout 必须是 panelRole="主格"。放大主格或缩小辅格，并保持零重叠；核对 order/mainPanelOrder。',
+    };
+  }
+  const sz = String(biggest.pan.size || '');
+  if (sz !== 'l' && sz !== 'xl') {
+    return {
+      ok: false,
+      error: `页面「${title}」主格面积最大但 size=${sz || '空'}（应为 l 或 xl）`,
+      repairBrief: '错误类型：size 与面积背离',
+      repairMessage: '【打回】主格（面积最大）的 size 必须是 l 或 xl；小辅格用 xs/s。修正 size 字段与 layout 一致。',
+    };
+  }
+  return null;
+}
+
+/** Reject overlap / messy packing / lazy equal grids; require main panel largest. */
+function validatePagePanelLayouts(page, layouts) {
+  const title = page.title || '?';
+  const M = LAYOUT_MARGIN;
+  for (const a of layouts) {
+    if (a.w < 0.12 || a.h < 0.1) {
+      return {
+        ok: false,
+        error: `页面「${title}」格过小（设计感不足）`,
+        repairBrief: '错误类型：分格过碎',
+        repairMessage:
+          '【打回】每格 layout.w≥0.12、h≥0.1；用大小对比做设计，不要碎条凑数。重排本页全部 layout，并保证零重叠+gutter≥0.018。',
+      };
+    }
+    if (a.w <= 0 || a.h <= 0 || !Number.isFinite(a.area)) {
+      return {
+        ok: false,
+        error: `页面「${title}」存在非法 layout 尺寸`,
+        repairBrief: '错误类型：layout 非法',
+        repairMessage: '【打回】每格 w/h 必须为正有限数；重写全部 layout。',
+      };
+    }
+    if (a.x < M - 0.005 || a.y < M - 0.005 || a.x + a.w > 1 - M + 0.005 || a.y + a.h > 1 - M + 0.005) {
+      return {
+        ok: false,
+        error: `页面「${title}」格贴边过紧或越界（需页边 margin≈0.03~0.06）`,
+        repairBrief: '错误类型：layout 越界/无页边',
+        repairMessage: `【打回】每格须留页边：x,y≥${M} 且 x+w、y+h≤${(1 - M).toFixed(3)}。禁止画出页外。重排本页全部 layout，零重叠。`,
+      };
+    }
+  }
+  for (let i = 0; i < layouts.length; i++) {
+    for (let j = i + 1; j < layouts.length; j++) {
+      if (rectsCollideOrTooClose(layouts[i], layouts[j], LAYOUT_MIN_GUTTER)) {
+        const A = layouts[i];
+        const B = layouts[j];
+        const aId = A.pan.order ?? A.pan.title ?? i + 1;
+        const bId = B.pan.order ?? B.pan.title ?? j + 1;
+        return {
+          ok: false,
+          error: `页面「${title}」格 #${aId} 与 #${bId} 重叠或间距不足`,
+          repairBrief: `错误类型：格重叠/乱排\n错在哪里：#${aId} 与 #${bId}`,
+          repairMessage: `【打回 — 分格重叠或排版乱】
+页面「${title}」中格 #${aId} layout=(${A.x},${A.y},${A.w},${A.h}) 与格 #${bId} layout=(${B.x},${B.y},${B.w},${B.h}) 相交或 gutter < ${LAYOUT_MIN_GUTTER}。
+怎么改：重排本页【全部】panels[].layout——先放大主格，再在剩余空区切辅格；任意两格须轴对齐分离且间距≥${LAYOUT_MIN_GUTTER}；页边≥${LAYOUT_MARGIN}；禁止叠压、禁止挤成一团。交验算 right=x+w、bottom=y+h 后再输出。`,
         };
       }
     }
   }
-  return { ok: true, value: raw };
+  const totalArea = layouts.reduce((s, x) => s + x.area, 0);
+  if (layouts.length >= 2 && totalArea < 0.45) {
+    return {
+      ok: false,
+      error: `页面「${title}」分格过稀（总面积 ${totalArea.toFixed(2)}，排版散乱）`,
+      repairBrief: '错误类型：版式过稀/乱',
+      repairMessage:
+        '【打回】同页格总面积过小，版面散乱。放大主格、收拢辅格到相邻空带，保持 gutter≥0.018 且零重叠；目标总面积约 0.62~0.88。',
+    };
+  }
+  if (totalArea > 0.94) {
+    return {
+      ok: false,
+      error: `页面「${title}」分格过满（总面积 ${totalArea.toFixed(2)}，几乎无 gutter）`,
+      repairBrief: '错误类型：版式过满',
+      repairMessage:
+        '【打回】格总面积过大，易重叠或无呼吸。缩小辅格、统一 gutter≥0.018，页边≥0.03，保证零重叠。',
+    };
+  }
+  const main = layouts.find((x) => x.pan.panelRole === '主格');
+  if (main) {
+    const others = layouts.filter((x) => x !== main);
+    const maxOther = others.reduce((m, x) => Math.max(m, x.area), 0);
+    const ratio = maxOther > 0 ? main.area / maxOther : Infinity;
+    if (others.length && ratio < 1.25) {
+      return {
+        ok: false,
+        error: `页面「${title}」主格无视觉统治（面积比 ${ratio.toFixed(2)} < 1.25）`,
+        repairBrief: `错误类型：主格无视觉统治\n主格 area=${main.area.toFixed(3)} 次大=${maxOther.toFixed(3)} 比=${ratio.toFixed(2)}`,
+        repairMessage: `【打回 — 主格无视觉统治】
+页面「${title}」：主格 area=${main.area.toFixed(3)}，次大格 area=${maxOther.toFixed(3)}，比值仅 ${ratio.toFixed(2)}（须 ≥1.25，设计目标 ≥1.35）。
+怎么改：
+1) 先放大主格 layout（常见 w≥0.75 且 h≥0.42，或等价面积），size 设为 l 或 xl；
+2) 再缩小所有辅格，使每块 ≤ 主格面积×0.55；
+3) 保持零重叠与 gutter≥${LAYOUT_MIN_GUTTER}、页边≥${LAYOUT_MARGIN}；
+4) 重算每格 w*h，确认主格最大且比值≥1.35 后再交卷。禁止等分后再贴「主格」标签。`,
+      };
+    }
+  }
+  if (layouts.length >= 3) {
+    const areas = layouts.map((x) => x.area).sort((a, b) => a - b);
+    const median = areas[Math.floor(areas.length / 2)];
+    const similar = layouts.filter((x) => Math.abs(x.area - median) / Math.max(median, 0.01) < 0.12);
+    if (similar.length >= layouts.length) {
+      return {
+        ok: false,
+        error: `页面「${title}」分格面积过于均一（无设计感）`,
+        repairBrief: '错误类型：等分网格懒版式',
+        repairMessage:
+          '【打回】禁止等分/近等分网格。重排：主格显著更大，辅格更小；全程保持零重叠与 gutter≥0.018。',
+      };
+    }
+    const fullW = layouts.filter((x) => x.w >= 0.85);
+    if (fullW.length >= layouts.length) {
+      const hs = fullW.map((x) => x.h);
+      const avgH = hs.reduce((a, b) => a + b, 0) / hs.length;
+      const flat = hs.every((h) => Math.abs(h - avgH) / Math.max(avgH, 0.01) < 0.15);
+      if (flat) {
+        return {
+          ok: false,
+          error: `页面「${title}」通栏等高叠罗汉（无设计感）`,
+          repairBrief: '错误类型：通栏懒版式',
+          repairMessage:
+            '【打回】禁止整页满宽横条且高度接近。改用主格独大+左右分栏等；新坐标必须零重叠。',
+        };
+      }
+    }
+  }
+  return null;
+}
+
+/** True if axis-aligned rects overlap or gap < minGap on all separating axes. */
+function rectsCollideOrTooClose(a, b, minGap = LAYOUT_MIN_GUTTER) {
+  return !(
+    a.x + a.w + minGap <= b.x ||
+    b.x + b.w + minGap <= a.x ||
+    a.y + a.h + minGap <= b.y ||
+    b.y + b.h + minGap <= a.y
+  );
 }
 
 /**
@@ -480,9 +744,20 @@ export async function runComicDirector({
       prevPage = page;
 
       const panelsBrief = pb.panels || [];
-      const layouts = defaultComicPanelLayouts(panelsBrief.length);
+      // Panel count / size / position come only from AI outline — no host default grid.
       for (let i = 0; i < panelsBrief.length; i++) {
         const br = panelsBrief[i];
+        if (
+          !br.layout ||
+          typeof br.layout !== 'object' ||
+          ![br.layout.x, br.layout.y, br.layout.w, br.layout.h].every((n) =>
+            Number.isFinite(Number(n)),
+          )
+        ) {
+          throw new Error(
+            `大纲页「${pb.title || pi + 1}」格 ${i + 1} 缺少 AI layout；宿主不提供默认分格`,
+          );
+        }
         const panel = createNode('comic_panel', x + 220, y + i * 100);
         panel.props.title = br.title || `格 ${i + 1}`;
         panel.props.order = Number(br.order) || i + 1;
@@ -490,7 +765,8 @@ export async function runComicDirector({
         panel.props.shape = br.shape || 'rect';
         panel.props.gutter = br.gutter || 'normal';
         panel.props.transitionIn = br.transitionIn || 'action';
-        panel.props.layout = clampLayout(br.layout || layouts[i] || layouts[0]);
+        panel.props.layout = clampLayout(br.layout);
+        panel.props.layoutNote = br.layoutNote || '';
         panel.props.genStatus = 'pending';
         project.nodes.push(panel);
         project.edges.push(createEdge(page.id, panel.id, 'contain'));

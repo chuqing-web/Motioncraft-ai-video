@@ -1,5 +1,6 @@
 /**
- * Static comic page compositor — paints panels via comic_shot html/css/js at t=0.
+ * Static comic page compositor — paints each comic_shot as a finished still
+ * (runtime signature still passes t/duration for API compat; prompts forbid t-driven motion).
  */
 import { ensureLayout, layoutToRect } from './layout.js';
 import { compileSceneRuntime } from './runtime.js';

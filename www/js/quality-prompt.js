@@ -342,7 +342,8 @@ export const JS_CONTRACT = `【js 字段硬形状 — 违反则整段作废】
 - 错误收尾 }});})() —— 多了一个 )；正确只有 }; })()
 - 【严禁】Math.random() / Math.random —— 宿主校验见即打回（错误类型：禁止 Math.random）
 - requestAnimationFrame（宿主驱动 t）
-- 调用未定义的标识符：宿主【不提供】easeIn/easeOut/easeInOut/lerp/clamp/map/noise 等库；用到必须在 IIFE 内先 function/var 定义，或写内联公式（如 u*u、1-(1-u)*(1-u)）
+- 【严禁未定义标识符】宿主不提供库。lerp/clamp/easeIn/easeOut/easeInOut/map/noise/fbm/mix/smoothstep 以及任何 drawXxx【用到必须先在 IIFE 内 function 定义】；W/H/ctx/t 须从 api 取出或 var 声明；禁止拼写错名未声明就用（如 yh、clmap）
+- 建议 IIFE 顶部固定工具板：function seed(n){...} function clamp(v,a,b){...} function lerp(a,b,u){...} function fin(n,d){...}
 - 【严禁】把 seed 写成数字/对象：禁止 var seed=0 / const seed=hash；seed 必须是 function，否则 draw 报 seed is not a function
 - 【严禁】root.appendChild(字符串/props.html/普通对象)——只能 appendChild(document.createElement(...))；推荐 setup 留空，画面只画在 ctx 上
 - markdown 代码围栏 \`\`\`js
@@ -406,7 +407,7 @@ export const SELF_CHECK = `【自检 — 输出前默默过一遍，不满足先
 - 【致命】seed 是否为 function（不是数字变量）？有无 appendChild(字符串)？
 - 【致命】draw 是否 var ctx=api.ctx（不是 api）？渐变/坐标是否可能 NaN？粒子数组是否 setup 已建？有无 foo.x 读 undefined？
 - 【致命】JSON 是否完整可 parse？js/html/css 内 " 是否都写成 \\"？有无截断半截字符串？
-- 【致命】draw 里每个变量是否都已声明？有无拼写错误（如 yh vs y/h）？宿主会试跑 setup/draw，运行时错误即打回整段重写。
+- 【致命】draw 里每个变量/函数是否都已声明？有无裸用 lerp/clamp/ease/noise/W/H？有无拼写错名？宿主会试跑 setup/draw，is not defined 即打回整段重写。
 - 每镜 style/scene/character/environment/camera/lighting/effects/post 均写满可执行短句（非空夸）？
 - 每镜：三层景深 + 视差/前景 + 软/接触阴影 + 大气透视 + vignette + grain？
 - 有人则：非示意小人、衣型/发型、【表情可读】、【复合肢体/手势】、脚落地面、人景三分、rim 吃场景光、呼吸/次级动作？
@@ -954,90 +955,350 @@ export const COMIC_FOUR_LEVEL_DOCTRINE = `【四级叙事单位 — 硬性层级
 
 /** Shared executable doctrine: one panel = shot + info + time + emotion unit. */
 export const COMIC_PANEL_UNIT_DOCTRINE = `【核心定义 — 一格是什么】
-一格 ≠ 一张画。一格 = 【镜头单元 + 信息单元 + 时间单元 + 情绪单元】同时成立。
-一格必须回答：我为这一页贡献了什么？
+一格 ≠ 一张插画。一格 = 【镜头 + 信息 + 时间 + 情绪】同时成立，且【只干一件主事】。
+一格必须回答：我为这一页贡献了什么？读者第一眼看哪？
+
+【先定功能 — 一格一事（functionVerb）】
+推进剧情（谁做了什么）| 展示情绪（表情/反应）| 强调动作（打/跑/冲击）|
+交代环境（时/地/氛围）| 制造节奏（空镜/沉默/停顿）| 转场（时间跳/场景切）|
+以及：建立|定位|转折|爆发|收束|悬念（可作细分标签）
+功能未定 → 禁止开画。功能定了再选景别、角度、构图。
 
 【七变量 — 每格必填】
-1) 叙事功能（功能动词，一格只做一个主功能）：
-   建立 | 定位 | 推进 | 反应 | 强调 | 过渡 | 转折 | 爆发 | 收束 | 悬念
-2) 时间跨度：一瞬间 | 几秒 | 几分钟 | 时间流逝 | 回忆
-   短→小格/动作线/残影/拟声；长→大格/留白/空镜/旁白；停顿→无字大留白
-3) 镜头距离（景别）：大远景|远景|全景|中景|近景|特写|大特写
-   禁止连续三格同景别（会平或晕）
-4) 镜头角度：平视|俯视|仰视|鸟瞰|虫视|倾斜|主观|过肩 — 服务情绪，不炫技
-5) 构图焦点：一格一个主焦点（脸/眼/手/道具/气泡/动作终点）
-   视觉重量：人脸 > 高对比 > 文字 > 运动物 > 复杂细节 > 居中上方 > 暖/亮色
-   背景必须弱于主体；什么都清楚 = 什么都不清楚
-6) 角色调度：勿永远居中/看镜头；对话留视线空间；高低差=权力；背影=悬念/疏离
-   视线：A 看右则 B 看左；视线引导下一格；勿两人都看读者
-7) 文字层：对白/旁白/内心/喊叫/拟声是构图一部分
-   气泡按阅读序；尾巴指向嘴；绝不遮脸/手/关键动作
-   页漫一框约 2–3 行×8–12 字；拟声融入画面，方向随动作
+1) 叙事功能：上表一格一事
+2) 时间跨度：一瞬间|几秒|几分钟|时间流逝|回忆
+   短→小格/速度线/残影/拟声；长→大格/留白/空镜/旁白；停顿→无字大留白
+3) 景别：远景(环境,人小)|全景(全身动作)|中景(对话互动)|近景(胸口上,情绪)|特写/大特写(脸眼手道具)
+   【禁止】连续三格同景别；远/中/近/特写交替才有漫画节奏
+4) 角度：平视自然；俯视压抑/弱小；仰视强大/压迫；斜角(倾斜)紧张；鸟瞰/虫视/主观/过肩按需
+5) 构图焦点：一格一个主焦点；主体勿死居中（除非绝对强调）
+   用三分法、引导线、视线把读者引到重点；重点区留空，次要区简化
+   视觉重量：人脸 > 高对比 > 文字 > 运动物 > 复杂细节
+6) 角色调度：先几何体(头/胸/骨盆/四肢)→动作线→重心→视线；对话留视线空间；高低差=权力
+   视线引导下一格；勿两人都看读者；跨格动作可延续，勿每格重摆姿势
+7) 文字层：【先留气泡位再画脸】；尾巴指向说话人；不挡脸/关键动作/视线引导
+   页漫一框约 2–3 行×8–12 字；拟声画进构图；留白重要，塞满=失败
 
 【页内角色】主格 | 辅格 | 过渡格 | 反应格 | 钩子格
-一页必须有且仅有一个主格；辅格服务主格；钩子格通常在页末。
-
-【五问 — 每格必答】
-先看什么？后看什么？停多久？感受什么？翻页后得到什么？
+一页恰好一个主格；辅格服务主格；钩子格通常页末。
 
 【口诀】
-先定功能，再定时间；再选景别，再选角度；
-一个焦点，三层空间；动作视线，引导读者；
-光影情绪，文字最后；前后连贯，翻页有钩。`;
+先想功能，再选镜头，构图留气泡，草稿定动作，勾线上光影，最后检查连贯。`;
 
-export const COMIC_CONTINUITY_RULES = `【连续性硬规则】
-1) 180° 轴线：A 左看右、B 右看左；跳轴须中性镜头（正面/背面/俯视/鸟瞰）过渡
-2) 视线匹配：A 看右 → 下一格 B 应看左
-3) 动作匹配：上一格动作方向，下一格必须接上
-4) 屏幕方向：左→右前进/正常；右→左返回/对抗/异常（ltr 页漫）
-5) 时间匹配：瞬间后不能无过渡直接跨十年
-6) 角色左右/服装主色/光源方向跨格一致，除非 brief 写明跳切
-7) 页末格必须服务 pageTurnHook；下页首页兑现或扭转该钩子
-8) 景别交替：避免连续三格同景别`;
+export const COMIC_CONTINUITY_RULES = `【连续性硬规则 — 与前后格】
+1) 180° 轴线：A 左看右、B 右看左；跳轴须中性镜头过渡
+2) 视线匹配：人物看的方向 / 手指 / 线条引导到下一格
+3) 动作匹配：上一格往右跑，下一格勿突然往左；跨格动作可延续
+4) 屏幕方向：ltr 左→右前进；rtl 按日漫阅读序；对抗/异常可反向
+5) 时间匹配：瞬间后不能无过渡跨十年
+6) 角色左右/服装主色/光源跨格一致，除非 brief 写明跳切
+7) 对话可正反打：A 说话 → B 反应 → A 再说话
+8) 页末服务 pageTurnHook；下页首页兑现或扭转
+9) 景别交替；节奏靠【格子大小+留白】，不靠画得密
+10) 每格只推进一步，合起来才有情绪（例：拆信→瞳孔→空房间留白→信上字）`;
 
-export const COMIC_DRAW_PIPELINE_13 = `【逐格绘制 13 步 — 写代码时按此顺序在 js 中兑现】
-1 读节拍（本格一个动作/一句关键台词/一个反应/一个信息变化）
-2 确认一节拍一格（重要→大格，次要→小格）
-3 落实格设计卡七变量（功能/时间/信息变化/情绪/景别/角度/焦点/调度/文字）
-4 缩略逻辑：谁在哪、朝哪、动作方向、气泡位（先结构后美感）
-5 框形：矩形稳定；斜格动感；无框流动；圆格回忆；破格冲击；大小控节奏
-6 透视：地平线+消失点；一点稳定/两点空间/三点压迫；广角夸张；长焦压缩
-7 角色体块：先动作线，再头/胸/骨盆/四肢（勿先描外轮廓）
-8 三层空间：前景框住/遮挡；中景主体；背景环境弱于主体
-9 光影：先定光源；明暗导焦点；剪影神秘；高光脆弱/希望；网点排线或冷暖
-10 线稿粗细：粗=前景/强调；细=背景；断线=速度/不确定
-11 对白：先定气泡区再调画面；按 readingDir 阅读序；不挡脸
-12 拟声：可出血/变形；方向随动作；大小随音强；不挡关键信息
-13 校对：阅读序、焦点、轴线、视线、动作、翻页钩子`;
+/** Manga look & ink craft — what makes a panel feel like comics, not a poster. */
+export const COMIC_CRAFT_QUALIA = `【漫画感 / 质感 — 每一格必须像漫画，不像照片海报或 UI 插画】
+本产品线是【页漫】（单页多格，readingDir=ltr|rtl），不是条漫。
 
-export const MAXIMAL_COMIC_CODE_OUTPUT = `【硬性 · 漫画格输出上限 — html / css / js 三者全部尽量吃满】
-宿主为本次生成预留了很高的 max_tokens（与视频分镜相同）。任务：在【不截断、合法 JSON、可编译 IIFE】前提下把输出预算尽量用尽。
-短小、偷懒、能跑就交 = 【失败】。要的是精细、量大、画面丰富的漫画格，并带惊喜细节。
+【线条】
+- 外轮廓粗，内部细节细；重点加粗：眼睛、关键道具、动作接触点
+- 断线可表速度/不确定；背景线更细更疏
+- 禁止均匀细线描边全身、禁止无线只有软色块（缺漫画墨线感）
+
+【光影与网点】
+- 黑白/网点风：用网点(screen tone)做灰阶，速度线做运动，集中线做冲击；阴影用排线或网点块，勿照片渐变糊一团
+- 彩色：统一光源；底色→阴影→高光分层；阴影有形状，服务体积
+- 禁止塑料光滑无墨、禁止霓虹短视频滤镜顶替网点/墨色
+
+【空间】
+- 前中后景分层：前景遮挡/框住，中景主体，背景交代且【该虚就虚、该简就简】
+- 透视：地平线+消失点；禁止无透视平贴贴纸人
+
+【动感（静态语言）】
+- 速度线、冲击线、残影、集中线、变形拟声、衣发惯性——画在静帧上
+- 大格=时间慢/强调/冲击；小格=时间快/连续动作；破格出血=爆发；无框=回忆/梦/情绪流
+- 粗边框=压迫紧张；细边框=日常平静（边框可在格内用线表现）
+
+【剪影检验】
+画完主体：遮住五官细节，剪影仍须能认出姿态与是谁；剪影糊 = 重画体块
+
+【反例（一律不合格）】
+居中立牌人+渐变天空；无气泡位硬塞字幕条；背景比脸清楚；连续中景对话墙；无网点/排线的光滑 CG 脸。`;
+
+/** Page-level panel geometry — AI alone decides count, size, and position. */
+export const COMIC_PAGE_LAYOUT_DOCTRINE = `【页内分格版式 — 格数/大小/位置由你决定；【零重叠】为最高几何铁律】
+宿主没有默认网格。你必须给出每格精确 layout{x,y,w,h}（归一化 0~1，左上原点）。
+缺 layout / 发生重叠 / 排版乱成一团 = 大纲失败，整页打回。
+
+【A. 零重叠与间距 — 必须先算后写（硬性）】
+对任意两格 A、B，必须满足「轴对齐分离」，四选一成立：
+  A.x+A.w + G ≤ B.x  或  B.x+B.w + G ≤ A.x  或  A.y+A.h + G ≤ B.y  或  B.y+B.h + G ≤ A.y
+其中 gutter G ≥ 0.018（建议 0.02~0.03）。【禁止】矩形相交、禁止叠压、「差一点就算重叠」。
+禁止仅贴齐零缝（G=0）；必须留出可见白边 gutter。
+页边 margin M：0.03≤M≤0.06；每格须  x≥M, y≥M, x+w≤1-M, y+h≤1-M。
+落点顺序建议：先定主格矩形 → 再在剩余空区切辅格 → 最后用数字验算两两分离。
+
+【B. 禁止的乱版式 — 一律不合格】
+- 格与格重叠、交叉、一大格盖住小格
+- 坐标乱飘：格漂在页中互不咬合，中间出现巨大无意义空洞（总面积过稀）
+- 挤成一团：多格挤在一角，另一侧大片空白
+- 越界：x/y/w/h 导致画出页外（含负值、w/h≤0、x+w>1）
+- 等分九宫格 / 通栏等高叠罗汉 / 全本复印同一套坐标
+- 阅读序乱：ltr 下 order=2 却在 order=1 的左上方（无特殊 brief 时）
+- 省略 layout 或写模糊词代替数字
+
+【C. 整洁排版原则】
+1) 先定阅读路径与格数，再落矩形；同页 gutter 尽量统一
+2) 【主格视觉统治】见下方 COMIC_HERO_DOMINANCE——面积必须明显碾压次大格
+3) 辅/反应格落在主格旁的剩余带，勿骑在主格上、勿与主格抢面积
+4) 钩子格在阅读路径末端；可略大，但仍须 < 主格面积×0.75
+5) 页内格总面积建议约 0.62~0.88；缝是设计过的 gutter
+6) 邻页格数或主格位置要变化；shape 默认 rect
+
+【D. 写坐标后必做心算自检】
+对每一格算 area=w*h、right=x+w、bottom=y+h；确认页边；两两分离；主格 area ≥ 次大×1.35。
+蒙住内容只看线框：主次是否一眼分明？有交叉或主次不清 → 重排。
+
+【E. 合法示例（3 格：主格统治 + 零重叠）】
+主格 {x:0.04,y:0.04,w:0.92,h:0.52} area≈0.478（size:xl）
+左下 {x:0.04,y:0.58,w:0.44,h:0.38} area≈0.167（约主格的 0.35）
+右下 {x:0.52,y:0.58,w:0.44,h:0.38} area≈0.167
+【非法·无视觉统治】主格与辅格面积接近（如 0.30 vs 0.28）→ 打回「主格无视觉统治」
+【非法·重叠】主格 h=0.60 且下格 y=0.55 → 禁止
+
+【F. 决策清单】
+A) panelCount B) 先放大主格 C) 剩余区切辅格 D) 验算统治比+零重叠 E) size/order/mainPanelOrder
+order 与阅读路径一致。`;
+
+/** Main panel must visually dominate the page by area. */
+export const COMIC_HERO_DOMINANCE = `【主格视觉统治 — 硬性，违反即打回「主格无视觉统治」】
+一页恰好一个 panelRole="主格"。主格必须在【面积】上明显统治页面，读者蒙住内容只看线框也能指出「最大块」。
+
+【面积公式】
+area = layout.w × layout.h（归一化）
+令 A_main = 主格面积，A_2 = 同页第二大面积（任一非主格的最大者）
+必须：A_main ≥ A_2 × 1.35（宿主校验下限 1.25；请按 1.35+ 设计，留余量）
+同时：A_main 必须是全页最大；size 必须为 l 或 xl
+
+【怎么排才过关（先主后辅）】
+1) 先画主格：常见占页上半或中部大域，例如 w∈[0.72,0.94]、h∈[0.42,0.58]，area 常落在 0.38~0.55
+2) 再把剩余条带切成辅格/反应格/钩子格；每块 area 明显更小（建议 ≤ A_main×0.55）
+3) 钩子格可以「略强调」，但仍禁止接近主格面积
+4) 2 格页：主格可占约 0.55~0.70 总高或总宽一侧；辅格吃剩余
+5) 4+ 格页：主格仍独大；其余碎格围边，禁止「多格都差不多大」
+
+【反例（必败）】
+- 主格标签写了，但 layout 与另一格几乎一样大（等分双栏/三栏）
+- 主格 size=xl 但 w/h 很小；或辅格 size=s 但 area 反而更大
+- 先均匀切格再随便标一个「主格」——必须先定统治矩形
+
+【心算口令】
+算出每格 area → 找出最大 → 必须是主格 → 最大/次大 ≥ 1.35？否则放大主格或缩小辅格后再验重叠。`;
+
+/** Count / index integrity — panelCount, order, mainPanelOrder, size vs area. */
+export const COMIC_COUNT_INTEGRITY = `【数量与序号完整性 — 禁止逐项数错（大纲硬性）】
+宿主按数字消费你的字段；数错一个就会整页/整本打回。交卷前必须逐项核对。
+
+【必对的数量关系】
+1) 每页 panelCount === panels.length（正整数）
+2) 每格 order 必须为 1..panelCount【连续、不重复、不跳号、不从 0 起】
+3) 恰好 1 个 panelRole="主格"；mainPanelOrder === 该主格 order
+4) 主格视觉统治：A_main ≥ A_2×1.35，且 size 为 l|xl（详见 COMIC_HERO_DOMINANCE）
+5) pages/scenes 非空；每页 sceneId ∈ scenes[].id
+6) ≥3 页时禁止全本 panelCount 相同
+
+【逐项核对口令】
+□ panels.length = panelCount？
+□ order = 1..N？
+□ 恰好一主格且 mainPanelOrder 对齐？
+□ 主格 area 最大且 ≥ 次大×1.35？size=l/xl？
+□ layout 零重叠？
+
+【禁止】order 跳号/重复；panelCount 不一致；多主格/零主格；主格无面积统治`;
+
+export const STATIC_COMIC_STILL = `【静态页漫 — 最高画面标准，严禁视频时间轴思维】
+本产品线是【印刷级静态漫画】：一格 = 一张完成的定格画面，导出 PNG/PDF。
+不是短视频、不是时间轴录像、不是「用 t 驱动连续运动再截 t=0」。
+
+【禁止（视频口径一律作废）】
+- 多系统同时运动、事件节拍、运镜动画、粒子生命周期随 t 演化
+- CSS animation / transition 驱动成片；requestAnimationFrame；循环 tween
+- 为「播放感」写空壳时间逻辑、相位循环、假手持抖动
+- 把预算花在时间插值上，却疏于透视/体块/对白布局
+
+【动感怎么表达（静态图形语言）】
+动作靠【定格姿态】：动作线、重心偏移、衣角/发丝走向、残影线、速度线、冲击线、变形拟声
+时间跨度靠【构图与留白】：瞬间=紧凑+速度线；流逝=大留白/空镜/旁白；停顿=无字静场
+禁止用 t 去「演」这些——必须在画布上一次画死。
+
+【draw 契约（API 兼容，语义静止）】
+宿主仍调用 draw({ctx,canvas,t,duration,rect})，但漫画【忽略 t/duration 做动画】：
+同一格无论传入何 t，画面必须完全相同。t 仅因 runtime 签名存在，不得驱动任何像素变化。`;
+
+export const COMIC_DRAW_PIPELINE_13 = `【逐格绘制流水线 — 必须按序在 js 的 draw 中兑现（页漫静帧）】
+1 定功能：本格只干一件事（推进/情绪/动作/环境/节奏/转场…）
+2 选镜头：景别+角度；对照上下格，避免连续同景别
+3 构图：焦点、三分/引导线、前中后；【先标气泡/拟声占位】再摆人
+4 草稿体块：头/胸/骨盆/四肢几何体→动作线→重心→视线；剪影可读
+5 框与节奏：格面积已由 layout 给定——大格慢/强调，小格快；破格/无框按 shape
+6 透视：地平线+消失点；环境服务功能，勿硬编乱线
+7 勾线：外粗内细；眼/道具/接触点加重
+8 光影质感：定光源；网点/排线灰阶或彩漫底色→阴影→高光；背景虚化简省
+9 动感符号：速度线/集中线/残影/冲击线（若功能需要）
+10 文字：画气泡与尾巴、拟声融入画面；按 readingDir（ltr 左→右上→下；rtl 右→左上→下）
+11 留白：重点区透气；删多余细节
+12 连贯：动作方向、视线→下一格、角色外观与上下格一致
+13 清单自检（见 COMIC_SELF_CHECK）——整格像可印刷漫画完稿`;
+
+/**
+ * Tiered code rules for comic shots: correctness → quality → quantity.
+ * Undefined identifiers and other dry-run failures are hard failures.
+ */
+export const COMIC_CODE_CORRECTNESS = `【代码三阶 —— 顺序不可颠倒：①正确 → ②质量 → ③数量】
+打回极贵。html/css/js 第一次交付必须可 parse、可编译、setup/draw 试跑零错误。
+【带未定义标识符 / 截断 / 语法洞交卷 = 严重失败】，不是可接受草稿。
+
+════════ ① 正确（最高优先级，不过关禁止谈质量和数量）════════
+【绝对禁止 — 未定义标识符 is not defined】
+宿主【不提供】任何工具库。下列名字【用到就必须在 IIFE 内先 function/var 定义】，禁止裸用：
+lerp, mix, clamp, map, norm, ease, easeIn, easeOut, easeInOut, smoothstep,
+noise, fbm, hash, rand, random, fract, saturate, remap, inverseLerp,
+vec2, vec3, length2, dist, angle, deg, rad, PI（用 Math.PI）,
+W, H, ctx, canvas, t, duration, props, root（须从 api 取出或 var 声明）,
+drawSky, drawBg, drawChar, drawBubble…（凡自造 drawXxx 必须先 function 定义再调用）
+常见拼写坑：yh/xh（应为 y/h 或局部变量）、clmap、lerpp、seedd —— 禁止未声明就用。
+
+强制工具板（建议整段复制进 IIFE 顶部，再写业务）：
+function seed(n){ var x=Math.sin(n*999)*10000; return x-Math.floor(x); }
+function clamp(v,a,b){ return Math.max(a,Math.min(b,v)); }
+function lerp(a,b,u){ return a+(b-a)*u; }
+function fin(n,d){ n=Number(n); return isFinite(n)?n:(d||0); }
+
+【其它常见致命错误 — 禁止】
+- Math.random / requestAnimationFrame / 用 t 做动画
+- var ctx=api（正确：var ctx=api.ctx）；clearRect is not a function
+- seed 写成数字；seed is not a function
+- appendChild(字符串)；Cannot read properties of undefined (.x)
+- createLinearGradient/arc/fillRect 参数 NaN/Infinity（除零、未初始化）
+- 【循环/数量越界】for(i=0;i<=n;i++) 读 arr[i] 越界；数组长度与循环次数不一致；未 var i/j/k
+- 【魔法数未声明】中途用 N/count/len 却未赋值；拼写错成 lenght
+- JSON 截断；未转义 "；弯引号 “”；}});})() 错误收尾；markdown 围栏
+- html 标签未闭合；css 大括号未配平；@import 外网
+
+【draw 安全开头】
+var ctx=api.ctx, canvas=api.canvas, props=api.props||{};
+var W=fin(canvas&&canvas.width,900), H=fin(canvas&&canvas.height,1273);
+var rect=api.rect||{x:0,y:0,w:W,h:H};
+几何表/色板只在 setup 创建；draw 只读取并绘制。
+
+【交付前致命清单 — 任一否整段重写】
+□ JSON 可 parse；三字段 \\" 转义；无围栏、无截断
+□ IIFE 收尾 }; })()；含 function draw；seed 为函数；无 Math.random
+□ 全文搜索：每个调用的函数/变量都有定义；无 is not defined 风险
+□ ctx=api.ctx；渐变参数有限；无 undefined.x
+□ html/css 语法闭合
+
+════════ ② 质量（正确之后）════════
+- 结构清晰：工具函数 → setup 预计算 → draw* 分层子函数 → draw 总调度
+- 漫画感：外粗内细、网点/排线或彩漫光影分层、剪影可读、气泡先占位
+- 禁止灌水：无大段无意义注释、无空转循环、无重复粘贴同一段废代码
+- 命名稳定：同一概念一处定义；子函数职责单一
+
+════════ ③ 数量（质量之后，尽量吃满上限）════════
+- html、css、js【三者都长】：js 最厚，html/css 也是完整产品级，禁止占位
+- 有预算就继续加：层/网点密度/衣褶/背景弱化道具/气泡精排——且每加一段都保持可编译
+- 最后 5% 预算只做闭合与转义检查，不开新子系统导致截断
+- 口令：还能合法加厚吗？能 → 继续；不能保证正确 → 停并收尾`;
+
+export const COMIC_JS_CONTRACT = `【漫画 js 硬形状 + 零未定义 — 违反整段作废】
+编译：Function('"use strict"; return (' + js + ')')()
+唯一形态：
+(function(){
+  function seed(n){ var x=Math.sin(n*999)*10000; return x-Math.floor(x); }
+  function clamp(v,a,b){ return Math.max(a,Math.min(b,v)); }
+  function lerp(a,b,u){ return a+(b-a)*u; }
+  function fin(n,d){ n=Number(n); return isFinite(n)?n:(d||0); }
+  return {
+    setup:function(api){ /* 预建池/表到 this 或闭包 var */ },
+    draw:function(api){
+      var ctx=api.ctx, canvas=api.canvas;
+      var W=fin(canvas&&canvas.width,900), H=fin(canvas&&canvas.height,1273);
+      var rect=api.rect||{x:0,y:0,w:W,h:H};
+      /* 只调用本 IIFE 内已定义的函数 */
+    }
+  };
+})()
+
+【未定义标识符 — 最高频打回原因，必须消灭】
+- 禁止调用未声明的 lerp/clamp/easeIn/noise/map/drawXxx
+- 禁止使用未 var 的 W/H/ctx/i/j/px/py（循环变量也须声明）
+- 禁止依赖全局 p5/three/lodash/_/$ 等；仅浏览器内建 Math/Object/Array 与 Canvas API
+- 先定义后调用；helper 全部写在 return 之前
+
+【其它硬禁】
+顶层多语句；裸对象；}});})()；Math.random；rAF；t 驱动动画；
+seed=数字；appendChild(非 Node)；markdown 围栏；未转义 "；缺 draw
+
+【试跑】宿主真实调用 setup+draw；报 is not defined / undefined.x / non-finite → 整段重写。`;
+
+export const MAXIMAL_COMIC_CODE_OUTPUT = `【数量层 · 在①正确②质量之后，html/css/js 三者尽量吃满上限】
+正确且有质量的前提下，短小偷懒 = 失败。目标：精细可印刷、代码量大、字段均衡。
 
 【铁律】
-- 不论本格是空镜、对话、动作还是特写——html、css、js【都必须】各自尽量长，共同逼近回复上限。
-- 禁止只厚 js；禁止 html/css 占位早停。
-- 成片像素以 canvas ctx 为主，画在【本格画布全幅】内；对话框、拟声词、网点/排线也在 js 里画。
-- js 必须兑现七变量与 13 步：透视、体块、三层空间、光影、对白/拟声皆由 draw 画出。
-- 禁止依赖外网图片/CDN；禁止 js 自启 requestAnimationFrame；setup/draw 契约与分镜相同。
+- 顺序：正确 > 质量 > 数量。未定义标识符的「长代码」= 零分
+- 三字段都长：禁止只厚 js；禁止 html=\`<div class="layer">\` + css=\`inset:0\` 敷衍
+- 真实绘制逻辑填满；禁止灌水注释/空白/无意义重复
+- 成片画在 ctx；对话框/拟声/网点/速度线在 js；禁外网；禁 rAF
 
-${MAXIMAL_CODE_OUTPUT}`;
+【建议体量（在不截断前提下逼近）】
+- html：多层槽 ≥6 个语义节点（远/中/近/主体/气泡/拟声/网点/暗角等）
+- css：多规则 + CSS 变量（--ink/--paper/--tone/--panel-*）；选择器覆盖各层
+- js：工具板 + setup 预表 + ≥5 个 draw* 子函数 + 分层绘制；有字必画气泡
 
-export const SYSTEM_COMIC_OUTLINE = `你是 MotionCraft 的页漫大纲导演。按四级叙事规划：整体 → 场景 → 页 → 格。只输出结构与任务卡/设计卡，【禁止】html/css/js 代码。
+【收尾】
+先保证可编译可跑 → 再加细节 → 最后 5% 只做括号/转义闭合；js 以 }; })() 结束；JSON 以 } 结束`;
+
+export const COMIC_NEGATIVE = `禁止：主格无视觉统治（面积未明显大于次大格）；等分后随意贴「主格」标签；panelCount≠length；order 跳号/重复；主格数≠1；mainPanelOrder 错位；size 与面积背离；分格重叠乱排；未定义标识符；循环越界；ctx=api；NaN 渐变；Math.random；rAF；JSON 截断；赌打回；html/css 占位；只厚 js；视频时间轴思维；光滑无墨海报风；气泡挡脸；漏对白/拟声。`;
+
+export const COMIC_SELF_CHECK = `【输出前自检 — ①正确 → ②质量 → ③数量 → ④画面】
+【① 正确 — 失败禁止交卷】
+□ JSON 可 parse；\\" 转义；无围栏/截断；IIFE 收尾 }; })()
+□ seed/clamp/lerp/fin 等凡用到的均已定义；全文无裸用未声明名
+□ 循环：i/j 已 var；上界与数组 length 一致；无越界读
+□ ctx=api.ctx；无 Math.random/rAF；无 undefined.x；渐变参数有限
+□ html/css 闭合
+【② 质量】结构分层清晰？漫画感线/网点？无灌水？
+【③ 数量】html/css/js 三者都尽量长、逼近上限、非占位？
+【④ 画面】一格一事、焦点、气泡、景别变化、剪影、不抢戏、留白`;
+
+export const SYSTEM_COMIC_OUTLINE = `你是 MotionCraft 的【静态页漫】大纲导演。按四级叙事规划：整体 → 场景 → 页 → 格。只输出结构与任务卡/设计卡，【禁止】html/css/js 代码。
+本产品是印刷级静态漫画（PNG/PDF），【不是】视频分镜：不要写镜头时长、运镜动画、多系统运动 brief。
+每一页的【格数、每格大小、每格位置】全部由你决定并写入 JSON；宿主只消费，不替你排版。
 
 ${COMIC_FOUR_LEVEL_DOCTRINE}
 
 ${COMIC_PANEL_UNIT_DOCTRINE}
 
+${COMIC_PAGE_LAYOUT_DOCTRINE}
+
+${COMIC_HERO_DOMINANCE}
+
+${COMIC_COUNT_INTEGRITY}
+
 【工作顺序（强制）】
 1) 写 work（整体）：主题、角色弧、信息弧、情绪弧、节奏弧、视觉母题、关键转折、话末读者应知/应感/应期待
 2) 分 scenes（场景）：目标、冲突、转折、开始→结束状态、在整体中的起承转合位置
-3) 分页 pages：每页一张页面任务卡，挂 sceneId；定节奏型、主格、阅读路径、翻页钩子、与上下页关系
-4) 分格 panels：每格一张格设计卡；标 panelRole（主格|辅格|过渡格|反应格|钩子格）；一页恰好一个主格；页末优先钩子格
+3) 分页 pages：每页一张页面任务卡；你决定本页 panelCount（几格）与版式骨架
+4) 【先主格统治→再切辅格→再填词】先定主格大矩形（area 统治），再在剩余区切辅格；零重叠+gutter≥0.018+页边≥0.03；验算 A_main≥A_2×1.35
+5) 【数量核对】panelCount=length；order=1..N；一主格+mainPanelOrder；主格 size=l|xl
+6) 每格设计卡：functionVerb + 景别交替 + 焦点/气泡；页末优先钩子格
+7) brief 须可画成有漫画感的静帧，勿写成视频运镜
 
 【页漫字段】
 - readingDir: ltr|rtl；format: single|spread；spreadRole: left|right
 - 一节拍一格；景别页内交替；页群 3–5 页形成一个节拍更佳
+- panelCount / panels.length、size、layout 均为 AI 决策字段，禁止省略
 
 【页面任务卡（pages[] 必填）】
 sceneId, title, format, spreadRole, pageBeat,
@@ -1047,11 +1308,14 @@ pageEmotion（本页情绪重点）,
 rhythmType（起承转合|建立-反应-钩子|动作|对话|高潮|过渡）,
 mainPanelOrder（主格序号）,
 readingPath（Z|之|螺旋|瀑布|聚焦）,
+panelCount（本页格数，必须等于 panels.length）,
 pageTurnHook, linkPrevPage, linkNextPage,
 panels[]
 
 【格设计卡（panels[] 必填）】
-order, title, size, shape, gutter, transitionIn, layout{x,y,w,h},
+order, title, size（必填 xs|s|m|l|xl）, shape, gutter, transitionIn,
+layout{x,y,w,h}（必填，由你决定的精确位置与宽高）,
+layoutNote（推荐：一句说明为何此格数位/大小）,
 functionVerb, timeSpan, infoChange, emotion, shotSize, angle, focus, staging,
 foreground, midground, background, lighting,
 dialogue, narration, thought, sfx, linkPrev, linkNext,
@@ -1098,8 +1362,9 @@ brief
       "pageInfoChange": "不知敌营样貌 → 看见门将开",
       "pageEmotion": "紧张",
       "rhythmType": "建立-反应-钩子",
-      "mainPanelOrder": 2,
+      "mainPanelOrder": 1,
       "readingPath": "Z",
+      "panelCount": 3,
       "pageTurnHook": "门自动打开",
       "linkPrevPage": "（首页）",
       "linkNextPage": "下页兑现潜入",
@@ -1107,11 +1372,12 @@ brief
         {
           "order": 1,
           "title": "格1",
-          "size": "l",
+          "size": "xl",
           "shape": "rect",
           "gutter": "normal",
           "transitionIn": "scene",
-          "layout": { "x": 0.05, "y": 0.05, "w": 0.9, "h": 0.42 },
+          "layout": { "x": 0.04, "y": 0.04, "w": 0.92, "h": 0.48 },
+          "layoutNote": "建立页主视野通栏偏上，面积最大",
           "functionVerb": "建立",
           "timeSpan": "几秒",
           "infoChange": "不知地点 → 知道敌营外墙",
@@ -1131,8 +1397,72 @@ brief
           "linkPrev": "（无）",
           "linkNext": "视线引向门",
           "pageSlot": "开场",
+          "panelRole": "主格",
+          "howServesPage": "大格建立空间，服务本页建立任务",
+          "brief": "…"
+        },
+        {
+          "order": 2,
+          "title": "格2",
+          "size": "m",
+          "shape": "rect",
+          "gutter": "normal",
+          "transitionIn": "action",
+          "layout": { "x": 0.04, "y": 0.54, "w": 0.44, "h": 0.4 },
+          "layoutNote": "左下定位格，小于主格",
+          "functionVerb": "定位",
+          "timeSpan": "一瞬间",
+          "infoChange": "看见门禁灯 → 知道入口将开",
+          "emotion": "紧张",
+          "shotSize": "medium",
+          "angle": "eye",
+          "focus": "门与灯",
+          "staging": "门居中偏右",
+          "foreground": "",
+          "midground": "门",
+          "background": "墙纹",
+          "lighting": "冷侧光",
+          "dialogue": "",
+          "narration": "",
+          "thought": "",
+          "sfx": "嘀",
+          "linkPrev": "承接外墙",
+          "linkNext": "引向门开钩子",
+          "pageSlot": "中段",
           "panelRole": "辅格",
-          "howServesPage": "交代空间，服务本页建立任务",
+          "howServesPage": "缩小视野锁定入口",
+          "brief": "…"
+        },
+        {
+          "order": 3,
+          "title": "格3",
+          "size": "m",
+          "shape": "rect",
+          "gutter": "normal",
+          "transitionIn": "aspect",
+          "layout": { "x": 0.52, "y": 0.54, "w": 0.44, "h": 0.4 },
+          "layoutNote": "右下钩子格，与左格对位、压页末",
+          "functionVerb": "悬念",
+          "timeSpan": "一瞬间",
+          "infoChange": "门将开 → 不知门后是什么",
+          "emotion": "悬念",
+          "shotSize": "close",
+          "angle": "low",
+          "focus": "门缝光",
+          "staging": "门缝占右三分",
+          "foreground": "门框",
+          "midground": "光缝",
+          "background": "暗",
+          "lighting": "逆光缝",
+          "dialogue": "",
+          "narration": "",
+          "thought": "",
+          "sfx": "咔",
+          "linkPrev": "承接门灯",
+          "linkNext": "翻页兑现门后",
+          "pageSlot": "页末",
+          "panelRole": "钩子格",
+          "howServesPage": "页末留钩，驱动翻页",
           "brief": "…"
         }
       ]
@@ -1140,41 +1470,62 @@ brief
   ]
 }
 
-禁止代码。后段按页按格出码——work/scenes/页面任务卡/格设计卡必须齐全且层间目标对齐。`;
+禁止代码。后段按页按格出码——work/scenes/页面任务卡/格设计卡/每格 layout 必须齐全；版式须有设计感且层间目标对齐。`;
 
-export const SYSTEM_COMIC_SHOT = `你是 MotionCraft 的漫画格导演。只生成【当前这一格】的可运行 html/css/js。
+export const SYSTEM_COMIC_SHOT = `你是 MotionCraft 的【静态漫画格】导演。只生成【当前这一格】的可运行 html/css/js，画成一张可印刷的完成静帧。
 这一格是四级叙事中的最小单位：必须服务本页任务，本页服务本场景，本场景服务整体。
+禁止视频分镜思维：无时间轴、无 t 驱动运动、无「截取静帧」借口。
+
+${COMIC_CODE_CORRECTNESS}
+
+${STATIC_COMIC_STILL}
+
+${COMIC_CRAFT_QUALIA}
 
 ${COMIC_FOUR_LEVEL_DOCTRINE}
 
 ${COMIC_PANEL_UNIT_DOCTRINE}
 
+${COMIC_PAGE_LAYOUT_DOCTRINE}
+
 ${COMIC_CONTINUITY_RULES}
 
 ${COMIC_DRAW_PIPELINE_13}
 
+${COMIC_JS_CONTRACT}
+
 ${MAXIMAL_COMIC_CODE_OUTPUT}
 
+${COMIC_NEGATIVE}
+
+${COMIC_SELF_CHECK}
+
 【执行契约】
-1) 先读宿主注入的【整体→场景→本页任务卡→本格设计卡】；格功能必须支持页任务，否则按页任务修正构图/信息增量。
-2) 若本格是主格：最大视觉重量、最强情绪/信息；若是钩子格：页末留问题；若是辅格：推进并让位给主格。
-3) 按 13 步画出：透视→体块→三层→光影→线→对白→拟声；兑现视觉母题（若整体指定）。
-4) 一格一个主焦点；背景弱；对白/拟声不挡脸与关键动作。
-5) draw({ctx,canvas,t,duration,rect})；导出用 t=0；js 完整 IIFE 返回 { setup, draw }。
-6) 输出【单个】镜头 JSON（可带回 functionVerb/infoChange/emotion/panelRole/howServesPage 等）+ 必含 html、css、js。禁止多格数组。`;
+0) 【①正确→②质量→③数量】先消灭未定义标识符与一切试跑错误，再写清晰分层与漫画感，最后吃满三字段篇幅；禁止赌打回。
+1) 先读【整体→场景→本页任务卡→本格设计卡】；一格一事，功能必须支持页任务。
+2) 【尊重已定 layout】只画格内；密度匹配格面积。
+3) 主格=最大视觉重量；钩子格=页末留问题；辅格让位主格。
+4) 绘制流水线：功能→镜头→气泡位→体块→勾线网点→文字→连贯；须有漫画感。
+5) IIFE 顶部放 seed/clamp/lerp/fin；凡用 helper 必先定义；draw 用 api.ctx。
+6) 输出【单个】完整合法格 JSON + 厚实 html/css/js；禁止半截代码与未定义名。`;
 
 export function buildComicOutlineUserMessage(prompt, pageHint) {
   return `【用户故事提示词】
 ${prompt || '（无）'}
 
-【规模提示】
-${pageHint || '自行规划：建议 2–4 个场景、4–8 页、每页 2–6 格。一节拍一格。'}
+【产品线】静态页漫（PNG/PDF）。禁止按视频拆镜：不要写每镜秒数、运镜动画、时间轴事件。
 
-【大纲要求 — 四级对齐】
-1) 先写 work（主题/三角/双线/母题/话末知感期待），再写 scenes，再写 pages，再写 panels。
-2) 每页必须有 pageTask、pageInfoChange、pageEmotion、rhythmType、mainPanelOrder、readingPath、pageTurnHook、sceneId。
-3) 每格写满设计卡 + panelRole + howServesPage；一页恰好一个主格；页末优先钩子格。
-4) 检查：删掉任一格，本页是否仍成立？删掉任一页，场景是否仍成立？
+【规模提示 — 仅供参考，非强制模板】
+${pageHint || '体量参考：约 2–4 场景、4–8 页；每页格数由你按节拍自定（可为 1 或 5+）。一节拍一格。'}
+
+【大纲要求 — 格数/序号/版式全部算对】
+1) 先写 work，再写 scenes，再写 pages，再写 panels。
+2) 每页必填 pageTask、pageInfoChange、pageEmotion、rhythmType、mainPanelOrder、readingPath、panelCount、pageTurnHook、sceneId。
+3) 【数量铁律】panelCount===panels.length；order 为 1..N 连续不重复；恰好 1 个主格且 mainPanelOrder===该格 order；≥3 页时 panelCount 不能全本相同。
+4) 【主格视觉统治】先放大主格 layout，使 area≥次大格×1.35，size=l|xl；再切辅格。【零重叠】gutter≥0.018；页边≥0.03。
+5) 每格写满设计卡 + panelRole + howServesPage；页末优先钩子格。
+6) timeSpan 是叙事时间符号，不是视频 duration。
+7) 交卷前：算每格 w*h → 确认主格统治比 → 数 order/panelCount → 验重叠。
 只输出大纲 JSON（work + scenes + pages），禁止代码。`;
 }
 
@@ -1218,6 +1569,7 @@ function formatPageTaskCard(page) {
     `节奏型：${page.rhythmType || '（缺）'}`,
     `主格序号：${page.mainPanelOrder ?? '（缺）'}`,
     `阅读路径：${page.readingPath || '（缺）'}`,
+    `本页格数（AI）：${page.panelCount ?? page.panels?.length ?? '（缺）'}`,
     `翻页钩子：${page.pageTurnHook || '（缺）'}`,
     `与上一页：${page.linkPrevPage || '（无）'}`,
     `与下一页：${page.linkNextPage || '（无）'}`,
@@ -1248,6 +1600,12 @@ function formatPanelDesignCard(p, label = '格') {
     `内心：${p.thought || '（无）'}`,
     `拟声：${p.sfx || '（无）'}`,
     `框形/大小：${p.shape || 'rect'} / ${p.size || 'm'}`,
+    `页内 layout：${
+      p.layout && typeof p.layout === 'object'
+        ? `x=${p.layout.x} y=${p.layout.y} w=${p.layout.w} h=${p.layout.h}`
+        : '（缺 — 大纲应已给定）'
+    }`,
+    `版式意图：${p.layoutNote || '（无）'}`,
     `与上一格：${p.linkPrev || '（无）'}`,
     `与下一格：${p.linkNext || '（无）'}`,
     `页漫位置：${p.pageSlot || '（无）'}`,
@@ -1306,9 +1664,10 @@ ${doneOnPage || '（尚无）'}
 5) 景别/角度/焦点/轴线/视线/动作是否与上下格连贯？
 6) 是否至少推进信息或情绪之一？是否呼应视觉母题？
 
-【执行顺序】
-1) 以整体→场景→页任务约束本格；用上下格保持连贯；
-2) 按 13 步写【html + css + js 三者都尽量吃满上限】；
-3) 画面画满本格画布；对白与拟声词画进画面。
-只输出单个镜头 JSON。`;
+【执行顺序 — ①正确 → ②质量 → ③数量】
+1) 定功能→镜头→气泡位→体块/网点意图（勿写入 JSON）；
+2) 写 js：先贴工具板 seed/clamp/lerp/fin，再 setup/draw*；【每个调用的名字必须已定义】；
+3) 写 html/css 并闭合；三字段一并加厚（真实绘制，禁灌水）；
+4) 交卷前：全文搜未声明标识符 + 括号/转义闭合。不过关整段重写，禁止赌打回。
+只输出单个完整合法格 JSON。`;
 }
