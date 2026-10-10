@@ -445,14 +445,6 @@ Invoke-RestMethod http://127.0.0.1:17865/command -Method POST `
 
 ---
 
-# 五、示例脚本（《雾中车站》手搭）
-
-| 脚本 | 作用 |
-|------|------|
-| `build-mist-station.mjs` | 搭 2×6 节点并写入静帧代码 |
-| `optimize-mist-layouts.mjs` | 优化两页 layout（主格统治、零重叠） |
-| `fill-mist-design-cards.mjs` | **补全设计卡空字段**（不碰 js） |
-| `verify-mist-station.mjs` | 编译试跑全部 CS |
 
 ```powershell
 $env:NO_PROXY = '127.0.0.1,localhost'

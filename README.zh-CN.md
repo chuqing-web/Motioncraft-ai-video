@@ -2,6 +2,8 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
+**官网：** [https://chuqing-web.github.io/Motioncraft-ai-video-Announcement-Page/](https://chuqing-web.github.io/Motioncraft-ai-video-Announcement-Page/)
+
 **提示词 → 可编辑的 Canvas 代码 → 短片成片，或可印刷的动漫页漫。**
 
 MotionCraft 是一款 **Windows 桌面端 AI 创作工作台**：用自然语言讲故事，由大模型为每一镜 / 每一格写出可运行的 `html` / `css` / `js`，再在本地预览、修订并导出。  

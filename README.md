@@ -2,6 +2,8 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
+**Website:** [https://chuqing-web.github.io/Motioncraft-ai-video-Announcement-Page/](https://chuqing-web.github.io/Motioncraft-ai-video-Announcement-Page/)
+
 **Prompt → editable Canvas code → short film *or* print-ready anime pages.**
 
 MotionCraft is a **Windows desktop AI creation workbench**: describe a story in natural language, let an LLM write runnable `html` / `css` / `js` for every shot or comic panel, then preview, revise, and export locally.  
